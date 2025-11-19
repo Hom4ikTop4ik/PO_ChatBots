@@ -1,3 +1,5 @@
+// TODO: добавить проверку типов
+
 export default function MessageInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   return (
@@ -25,6 +27,9 @@ export default function MessageInspector({ node, updateNodeData, usedVars }) {
           {"balance"}
         </div>
       </label>
+
+      {/* TODO: вынести логику отображения доступных переменных в отдельный компонент и нужно проверять флоу - переменная
+      не должна быть доступна если на данном шаге её нет */}
       {usedVars && usedVars.length > 0 && (
         <div className="variable-suggestions">
           <strong>Доступные переменные:</strong>

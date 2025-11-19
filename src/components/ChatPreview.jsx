@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import { toScenario } from "../utils/scenarioUtils";
 
+// TODO: добавить проверку типов
+// TODO: вынести html в отдельные компоненты
+// TODO: добавить обработку api блока
+// TODO: добавить поддержку разных типов переменных (числа, булевы и т.д.)
+// TODO: улучшить безопасность evaluateExpression и исправить работу блока условия для строк
 export default function ChatPreview({ nodes, edges, globalVariables }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);

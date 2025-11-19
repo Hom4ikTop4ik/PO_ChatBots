@@ -1,6 +1,7 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
+// TODO: добавить проверку типов
 
 export default function ChoiceNode({ data }) {
   return (
@@ -24,7 +25,8 @@ export default function ChoiceNode({ data }) {
               type="source"
               position={Position.Bottom}
               id={opt.id}
-              className={`left-${leftPercent}`}
+              className="handle-left"
+              style={{ "--left": `${leftPercent}%` }}
             />
           );
         })}

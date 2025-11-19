@@ -4,25 +4,23 @@ import React, {
   useState,
   useEffect,
 } from "react";
-import ReactFlow, {
+import {
   ReactFlowProvider,
   useNodesState,
   useEdgesState,
   addEdge,
-  Controls,
-  MiniMap,
-  Background,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import "./App.css";
 import {
   fromScenario,
   toScenario,
-  createDefaultDataForType,
 } from "./utils/scenarioUtils";
 import { validateScenario } from "./utils/validation";
 import ChatPreview from "./components/ChatPreview";
 import BotsManager from "./components/BotsManager";
+import Canvas from "./components/Canvas";
+
 import StartNode from "./components/nodes/StartNode";
 import FinalNode from "./components/nodes/FinalNode";
 import MessageNode from "./components/nodes/MessageNode";
@@ -30,6 +28,7 @@ import InputNode from "./components/nodes/InputNode";
 import ConditionNode from "./components/nodes/ConditionNode";
 import ChoiceNode from "./components/nodes/ChoiceNode";
 import ApiNode from "./components/nodes/ApiNode";
+
 import MessageInspector from "./components/inspectors/MessageInspector";
 import InputInspector from "./components/inspectors/InputInspector";
 import ConditionInspector from "./components/inspectors/ConditionInspector";
@@ -47,13 +46,17 @@ const nodeTypes = {
   api: ApiNode,
 };
 
+
+// TODO: добавить проверку типов
+// TODO: добавить обработку ошибок при импорте сценария
+// TODO: вынести логику работы с меню и канвасом в отдельные хуки
+// TODO: добавить личный кабинет и авторизацию
+// TODO: убрать html в отдельные компоненты
 function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const reactFlowWrapper = useRef(null);
 
-  const reactFlowInstance = useRef(null);
   const [showInspectorModal, setShowInspectorModal] = useState(false);
 
   const [botName, setBotName] = useState("Bot");
@@ -69,38 +72,6 @@ function App() {
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
-  );
-
-  const onDragOver = useCallback((event) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  }, []);
-
-  const onDrop = useCallback(
-    (event) => {
-      event.preventDefault();
-      const type = event.dataTransfer.getData("application/reactflow");
-      if (!type) return;
-
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const instance = reactFlowInstance.current;
-      const position = instance
-        ? instance.project({
-            x: event.clientX - bounds.left,
-            y: event.clientY - bounds.top,
-          })
-        : { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-      const id = crypto.randomUUID();
-      const data = createDefaultDataForType(type);
-      const newNode = {
-        id,
-        type,
-        position,
-        data,
-      };
-      setNodes((nds) => nds.concat(newNode));
-    },
-    [setNodes]
   );
 
   const onNodesDelete = useCallback(
@@ -134,7 +105,7 @@ function App() {
   const onEdgeContextMenu = useCallback(
     (event, edge) => {
       event.preventDefault();
-      const ok = window.confirm("Удалить соединение?");
+      const ok = globalThis.confirm("Удалить соединение?");
       if (ok) {
         setEdges((eds) => eds.filter((e) => e.id !== edge.id));
       }
@@ -157,7 +128,7 @@ function App() {
 
   const deleteSelectedNode = useCallback(() => {
     if (!selectedNodeId) return;
-    const ok = window.confirm("Удалить блок и все его соединения?");
+    const ok = globalThis.confirm("Удалить блок и все его соединения?");
     if (!ok) return;
     setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
     setEdges((eds) =>
@@ -290,7 +261,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "bot-scenario.json";
+    a.download = scenario.BotName + "-bot-scenario.json";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -302,7 +273,7 @@ function App() {
     }
   };
   const handleFileChange = (event) => {
-    const file = event.target.files && event.target.files[0];
+    const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
@@ -398,27 +369,21 @@ function App() {
       <div className="app">
         <div className="sidebar">
           <h3>Блоки</h3>
-          {[
-            "start",
-            "final",
-            "message",
-            "input",
-            "condition",
-            "choice",
-            "api",
-          ].map((t) => (
-            <div
-              key={t}
-              className="block-item"
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/reactflow", t);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-            >
-              {t}
-            </div>
-          ))}
+          {["start", "final", "message", "input", "condition", "choice", "api"].map(
+            (t) => (
+              <div
+                key={t}
+                className="block-item"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/reactflow", t);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+              >
+                {t}
+              </div>
+            )
+          )}
           <button onClick={handleImportClick}>Импорт</button>
           <button onClick={handleExport}>Экспорт</button>
           <button onClick={() => setShowBotSettings(true)} className="mt8">
@@ -441,75 +406,25 @@ function App() {
             onChange={handleFileChange}
           />
         </div>
-        <div
-          className="content"
-          ref={reactFlowWrapper}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-        >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onNodeClick={onNodeClick}
-            onNodeContextMenu={onNodeContextMenu}
-            onEdgeContextMenu={onEdgeContextMenu}
-            onEdgeDoubleClick={onEdgeDoubleClick}
-            onNodesDelete={onNodesDelete}
-            onEdgesDelete={onEdgesDelete}
-            onInit={(instance) => (reactFlowInstance.current = instance)}
-            fitView
-          >
-            <MiniMap />
-            <Controls />
-            <Background variant="dots" gap={16} size={1} />
-          </ReactFlow>
-        </div>
 
-        {editingEdgeId && (
-          <div className="modal-overlay" onClick={() => setEditingEdgeId(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <h3>Редактирование соединения</h3>
-              <p className="muted">
-                Выберите новый целевой узел для этого соединения:
-              </p>
-              <div className="edge-list">
-                {nodes.map((node) => {
-                  const edge = edges.find((e) => e.id === editingEdgeId);
-                  return (
-                    <button
-                      key={node.id}
-                      onClick={() => {
-                        setEdges((eds) =>
-                          eds.map((e) =>
-                            e.id === editingEdgeId
-                              ? { ...e, target: node.id }
-                              : e
-                          )
-                        );
-                        setEditingEdgeId(null);
-                      }}
-                      className={`edge-target-button ${
-                        edge?.target === node.id ? "selected" : ""
-                      }`}
-                    >
-                      {node.data.label} ({node.type})
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => setEditingEdgeId(null)}
-                className="btn-cancel"
-              >
-                Отмена
-              </button>
-            </div>
-          </div>
-        )}
+        <Canvas
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onNodeContextMenu={onNodeContextMenu}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onEdgeDoubleClick={onEdgeDoubleClick}
+          onNodesDelete={onNodesDelete}
+          onEdgesDelete={onEdgesDelete}
+          setNodes={setNodes}
+          setEdges={setEdges}
+          editingEdgeId={editingEdgeId}
+          setEditingEdgeId={setEditingEdgeId}
+        />
 
         {showInspectorModal && (
           <div
@@ -573,6 +488,7 @@ function App() {
           </div>
         )}
       </div>
+
       <ChatPreview
         nodes={nodes}
         edges={edges}

@@ -1,3 +1,5 @@
+// TODO: добавить проверку типов
+
 export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   return (

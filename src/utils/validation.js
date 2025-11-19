@@ -14,6 +14,10 @@ function parseVariablesFromExpression(expr) {
   return Array.from(vars);
 }
 
+
+// TODO: проверять что переменные имеют уникальные имена
+// TODO: проверять что URL валиден
+// TODO: проверять что используемые переменные определены в момент исполнения блока
 export function validateScenario(nodes, edges, globalVars) {
   const errors = [];
   const definedVars = new Set();

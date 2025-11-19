@@ -1,3 +1,5 @@
+// TODO: добавить проверку типов
+
 export default function ApiInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
@@ -53,6 +55,7 @@ export default function ApiInspector({ node, updateNodeData }) {
         />
       </label>
       <label>
+        {/* TODO: сделать так чтобы переменная здесь отображалась как возможная для использования (как варианты в инспекторе сообщения) */}
         Переменная результата
         <input
           type="text"

@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-
+// TODO: добавить проверку типов
+// TODO: стилизовать под остальной интерфейс
+// TODO: добавить подтверждение при удалении бота
+// TODO: добавить поиск по списку ботов
+// TODO: уйти с локального состояния на управление ботами через глобальный стейт или контекст
+// TODO: добавить кнопку импрорта/экспорта ботов
+// TODO: добавить складывание ботов вместо локального хранилища в бд
 export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
   const [newBotName, setNewBotName] = useState("");
   const handleCreate = () => {

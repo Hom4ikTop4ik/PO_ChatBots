@@ -1,3 +1,5 @@
+// TODO: добавить проверку типов
+
 export default function InputInspector({ node, updateNodeData }) {
   const data = node.data;
   return (

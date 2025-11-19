@@ -1,6 +1,7 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
 
+// TODO: добавить проверку типов
 export default function MessageNode({ data }) {
   return (
     <div className="node message">

@@ -1,5 +1,6 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
+// TODO: добавить проверку типов
 
 export default function ConditionNode({ data }) {
   return (
@@ -13,13 +14,15 @@ export default function ConditionNode({ data }) {
         type="source"
         position={Position.Bottom}
         id="true"
-        className="left-30"
+        className="handle-left"
+        style={{ "--left": `30%` }}
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="false"
-        className="left-70"
+        className="handle-left"
+        style={{ "--left": `70%` }}
       />
     </div>
   );

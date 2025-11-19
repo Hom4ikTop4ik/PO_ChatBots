@@ -1,5 +1,6 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
+// TODO: добавить проверку типов
 
 export default function InputNode({ data }) {
   return (

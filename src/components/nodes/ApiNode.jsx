@@ -1,4 +1,5 @@
 import { Handle, Position } from "reactflow";
+// TODO: добавить проверку типов
 
 export default function ApiNode({ data }) {
   return (

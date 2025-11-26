@@ -3,5 +3,7 @@
 /build
 /.env
 /.env.local
+/.idea
+/.vscode
 package-lock.json
 yarn.lock

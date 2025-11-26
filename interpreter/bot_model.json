@@ -1,0 +1,161 @@
+{
+  "BotName": "Bot",
+  "Start": "fdff8279-637e-41c7-878a-1154f26582fe",
+  "Final": "6f1daf11-ac34-4d38-9235-2d96b6b77896",
+  "Blocks": [
+    {
+      "BlockName": "Старт",
+      "Block_id": "fdff8279-637e-41c7-878a-1154f26582fe",
+      "Type": "start",
+      "X": 470,
+      "Y": 157,
+      "Params": {},
+      "Connections": {
+        "In": [],
+        "Out": [
+          "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc"
+        ]
+      }
+    },
+    {
+      "BlockName": "Сообщение",
+      "Block_id": "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc",
+      "Type": "sendMessage",
+      "X": 435,
+      "Y": 309,
+      "Params": {
+        "message": "1) Текст сообщения ${var1}"
+      },
+      "Connections": {
+        "In": [
+          "fdff8279-637e-41c7-878a-1154f26582fe"
+        ],
+        "Out": [
+          "a2cdd6db-bcbe-467a-8f5c-99929b579cbc"
+        ]
+      }
+    },
+    {
+      "BlockName": "Ввод",
+      "Block_id": "a2cdd6db-bcbe-467a-8f5c-99929b579cbc",
+      "Type": "getMessage",
+      "X": 378,
+      "Y": 421,
+      "Params": {
+        "message": "2) Введите значение",
+        "var": "var1",
+        "type": "string"
+      },
+      "Connections": {
+        "In": [
+          "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc"
+        ],
+        "Out": [
+          "7cc61cc4-1076-4c3c-8b7e-16e465865370"
+        ]
+      }
+    },
+    {
+      "BlockName": "Сообщение",
+      "Block_id": "7cc61cc4-1076-4c3c-8b7e-16e465865370",
+      "Type": "sendMessage",
+      "X": 406,
+      "Y": 601,
+      "Params": {
+        "message": "3) Текст сообщения ${var1}. Ещё: ${var1}. И снова: ${var1}!"
+      },
+      "Connections": {
+        "In": [
+          "a2cdd6db-bcbe-467a-8f5c-99929b579cbc"
+        ],
+        "Out": [
+          "1a9a876b-c91e-452d-b140-665fc443944d"
+        ]
+      }
+    },
+    {
+      "BlockName": "Варианты",
+      "Block_id": "1a9a876b-c91e-452d-b140-665fc443944d",
+      "Type": "choice",
+      "X": 406,
+      "Y": 723,
+      "Params": {
+        "var": "choice1",
+        "prompt": "4) Выберите вариант",
+        "options": [
+          {
+            "id": "opt1",
+            "label": "Да",
+            "value": "yes"
+          },
+          {
+            "id": "opt2",
+            "label": "Нет",
+            "value": "no"
+          }
+        ]
+      },
+      "Connections": {
+        "In": [
+          "7cc61cc4-1076-4c3c-8b7e-16e465865370"
+        ],
+        "Out": [
+          "df5aedf6-7900-4f9f-9fa1-577e4539068f",
+          "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c"
+        ]
+      }
+    },
+    {
+      "BlockName": "Сообщение",
+      "Block_id": "df5aedf6-7900-4f9f-9fa1-577e4539068f",
+      "Type": "sendMessage",
+      "X": 305,
+      "Y": 866,
+      "Params": {
+        "message": "4.1) Да. Текст сообщения"
+      },
+      "Connections": {
+        "In": [
+          "1a9a876b-c91e-452d-b140-665fc443944d"
+        ],
+        "Out": [
+          "6f1daf11-ac34-4d38-9235-2d96b6b77896"
+        ]
+      }
+    },
+    {
+      "BlockName": "Сообщение",
+      "Block_id": "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c",
+      "Type": "sendMessage",
+      "X": 479,
+      "Y": 861,
+      "Params": {
+        "message": "4.2) Нет. Текст сообщения"
+      },
+      "Connections": {
+        "In": [
+          "1a9a876b-c91e-452d-b140-665fc443944d"
+        ],
+        "Out": [
+          "6f1daf11-ac34-4d38-9235-2d96b6b77896"
+        ]
+      }
+    },
+    {
+      "BlockName": "Финал",
+      "Block_id": "6f1daf11-ac34-4d38-9235-2d96b6b77896",
+      "Type": "final",
+      "X": 481,
+      "Y": 1016,
+      "Params": {},
+      "Connections": {
+        "In": [
+          "df5aedf6-7900-4f9f-9fa1-577e4539068f",
+          "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c"
+        ],
+        "Out": []
+      }
+    }
+  ],
+  "GlobalVariables": []
+}

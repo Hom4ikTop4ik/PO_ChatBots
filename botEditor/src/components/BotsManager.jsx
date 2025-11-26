@@ -2,7 +2,9 @@ import React, { useState, useRef } from "react";
 // TODO: добавить проверку типов
 // TODO: стилизовать под остальной интерфейс
 // TODO: добавить подтверждение при удалении бота
+// TODO: добавить поиск по списку ботов
 // TODO: уйти с локального состояния на управление ботами через глобальный стейт или контекст
+// TODO: добавить кнопку импрорта/экспорта ботов
 // TODO: добавить складывание ботов вместо локального хранилища в бд
 
 export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
@@ -92,6 +94,7 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
     <div style={{ padding: 20 }}>
       <h2>Управление ботами</h2>
 
+      {/* Создание бота и импорт */}
       <div style={{ marginBottom: 12 }}>
         <input
           type="text"
@@ -125,6 +128,7 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
         />
       </div>
 
+      {/* Поиск по имени бота */}
       <div style={{ marginBottom: 12 }}>
         <input
           type="text"

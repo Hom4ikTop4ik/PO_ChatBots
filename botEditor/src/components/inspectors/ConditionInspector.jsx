@@ -1,6 +1,6 @@
-// TODO: добавить проверку типов
+import PropTypes from 'prop-types';
 
-export default function ConditionInspector({ node, updateNodeData, usedVars }) {
+function ConditionInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   return (
     <div>
@@ -40,3 +40,11 @@ export default function ConditionInspector({ node, updateNodeData, usedVars }) {
     </div>
   );
 }
+
+ConditionInspector.propTypes = {
+  node: PropTypes.object.isRequired,
+  updateNodeData: PropTypes.func.isRequired,
+  usedVars: PropTypes.array,
+};
+
+export default ConditionInspector;

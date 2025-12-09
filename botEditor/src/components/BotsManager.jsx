@@ -1,17 +1,14 @@
-import React, { useState, useRef } from "react";
-// TODO: добавить проверку типов
-// TODO: стилизовать под остальной интерфейс
-// TODO: добавить подтверждение при удалении бота
-// TODO: добавить поиск по списку ботов
-// TODO: уйти с локального состояния на управление ботами через глобальный стейт или контекст
-// TODO: добавить кнопку импрорта/экспорта ботов
-// TODO: добавить складывание ботов вместо локального хранилища в бд
+import React, { useState } from "react";
 
-export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
+export default function BotsManager({
+  bots,
+  loading = false,
+  onSelectBot,
+  onNewBot,
+  onDeleteBot,
+}) {
   const [newBotName, setNewBotName] = useState("");
   const [search, setSearch] = useState("");
-
-  const fileInputRef = useRef(null);
 
   const handleCreate = () => {
     const name = newBotName.trim();
@@ -21,9 +18,7 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
   };
 
   const handleDelete = (botId) => {
-    const ok = window.confirm("Удалить бота и его bot_model из списка?");
-    if (!ok) return;
-    setBots((bs) => bs.filter((b) => b.id !== botId));
+    onDeleteBot(botId);
   };
 
   const handleExportBot = (bot) => {
@@ -40,48 +35,6 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-
-        const mkBot = (scenarioLike, idx) => {
-          const scenario = scenarioLike.scenario || scenarioLike;
-          const baseName =
-            scenario.BotName ||
-            scenarioLike.name ||
-            `Импортированный бот ${idx + 1}`;
-          const id = crypto.randomUUID();
-          return { id, name: baseName, scenario };
-        };
-
-        let importedBots = [];
-        if (Array.isArray(parsed)) {
-          importedBots = parsed.map((item, idx) => mkBot(item, idx));
-        } else {
-          importedBots = [mkBot(parsed, 0)];
-        }
-
-        setBots((prev) => [...prev, ...importedBots]);
-        alert("Бот(ы) успешно импортированы.");
-      } catch (e) {
-        alert("Ошибка импорта: " + e.message);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = "";
-  };
-
   const normalizedSearch = search.trim().toLowerCase();
   const visibleBots =
     normalizedSearch === ""
@@ -91,11 +44,10 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
         );
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Управление ботами</h2>
+    <div style={{ padding: 20, width: "100%" }}>
+      <h2>Мои боты</h2>
 
-      {/* Создание бота и импорт */}
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 16 }}>
         <input
           type="text"
           placeholder="Название нового бота"
@@ -113,23 +65,9 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
         >
           Создать
         </button>
-        <button
-          onClick={handleImportClick}
-          style={{ marginLeft: 8, padding: "6px 12px" }}
-        >
-          Импортировать бота
-        </button>
-        <input
-          type="file"
-          accept="application/json"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          style={{ display: "none" }}
-        />
       </div>
 
-      {/* Поиск по имени бота */}
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 16 }}>
         <input
           type="text"
           placeholder="Поиск бота по имени"
@@ -144,7 +82,9 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
         />
       </div>
 
-      {visibleBots.length === 0 ? (
+      {loading ? (
+        <p>Загружаем список ботов...</p>
+      ) : visibleBots.length === 0 ? (
         <p>Боты ещё не созданы или ничего не найдено.</p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -189,3 +129,4 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
     </div>
   );
 }
+

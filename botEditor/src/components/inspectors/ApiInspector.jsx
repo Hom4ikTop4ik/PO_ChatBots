@@ -1,6 +1,5 @@
-// TODO: добавить проверку типов
-
-export default function ApiInspector({ node, updateNodeData }) {
+import PropTypes from 'prop-types';
+function ApiInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
     <div>
@@ -79,3 +78,13 @@ export default function ApiInspector({ node, updateNodeData }) {
     </div>
   );
 }
+
+ApiInspector.propTypes = {
+  node: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    data: PropTypes.object.isRequired,
+  }).isRequired,
+  updateNodeData: PropTypes.func.isRequired,
+};
+
+export default ApiInspector;

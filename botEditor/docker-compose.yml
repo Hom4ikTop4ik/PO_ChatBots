@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: bot_editor_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bot_editor
+      POSTGRES_USER: bot_editor_user
+      POSTGRES_PASSWORD: bot_editor_pass
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - ./backend/models.sql:/docker-entrypoint-initdb.d/01_models.sql:ro
+    networks:
+      - bot_editor_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: bot_editor_backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://bot_editor_user:bot_editor_pass@db:5432/bot_editor
+      FRONTEND_ORIGIN: http://localhost:5173
+      JWT_SECRET: super-secret-change-me
+      JWT_ALGORITHM: HS256
+    ports:
+      - "8000:8000"
+    networks:
+      - bot_editor_net
+
+networks:
+  bot_editor_net:
+    driver: bridge

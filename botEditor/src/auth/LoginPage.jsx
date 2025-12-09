@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useAuth } from "./AuthContext";
 import "../styles/auth.css";
 
-function LoginPage() {
+export default function LoginPage() {
   const { login, register } = useAuth();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -81,6 +81,4 @@ function LoginPage() {
     </div>
   );
 }
-
-export default LoginPage;
 

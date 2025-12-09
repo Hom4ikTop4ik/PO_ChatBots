@@ -62,8 +62,9 @@ const nodeTypes = {
  *  - состояние React Flow (узлы, рёбра)
  *  - вызов валидатора конфигурации
  *  - отображение сайдбара, канваса, инспекторов и превью-чата
+ * Компонент конечно сильно большой, но пока что я не вижу смысла его дробить дальше.
  */
-function BotEditorShell() {
+export default function BotEditorShell() {
   const { user, logout } = useAuth();
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -544,5 +545,4 @@ function BotEditorShell() {
   );
 }
 
-export default BotEditorShell;
 

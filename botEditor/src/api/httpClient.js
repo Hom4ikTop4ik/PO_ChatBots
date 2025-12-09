@@ -37,4 +37,3 @@ export async function httpRequest(path, { method = "GET", body } = {}) {
 }
 
 export default httpRequest;
-

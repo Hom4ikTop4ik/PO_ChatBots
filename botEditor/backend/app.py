@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from passlib.context import CryptContext
 from psycopg2.extras import Json
+from psycopg2 import Error as PsycopgError
 
 
 from .db import get_connection
@@ -163,56 +164,40 @@ async def logout(response: Response):
     return {"ok": True}
 
 
-@app.get("/api/bots")
-async def list_bots(user = Depends(current_user)):
-    user_id = user["id"]
-    conn = get_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id, name, scenario, created_at, updated_at FROM bot_model WHERE user_id = %s ORDER BY created_at DESC",
-                    (user_id,),
-                )
-                rows = cur.fetchall()
-    finally:
-        conn.close()
-
-    return [
-        {
-            "id": str(r["id"]),
-            "name": r["name"],
-            "scenario": r["scenario"],
-            "created_at": r["created_at"].isoformat(),
-            "updated_at": r["updated_at"].isoformat(),
-        }
-        for r in rows
-    ]
-
-
 @app.post("/api/bots")
 async def create_bot(payload: dict, user = Depends(current_user)):
     user_id = user["id"]
     name = (payload.get("name") or "").strip() or "Новый бот"
     scenario = payload.get("scenario") or {}
 
-    bot_id = uuid.uuid4()
+    bot_id = str(uuid.uuid4())
 
     conn = get_connection()
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO bot_model (id, user_id, name, scenario)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id, name, scenario, created_at, updated_at
-                    """,
-                    (bot_id, user_id, name, Json(scenario)),
-                )
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO bot_model (id, user_id, name, scenario)
+                        VALUES (%s::uuid, %s, %s, %s::jsonb)
+                        RETURNING id, name, scenario, created_at, updated_at
+                        """,
+                        (bot_id, user_id, name, Json(scenario)),
+                    )
+
+                except PsycopgError as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"DB error while creating bot: {e.pgerror or str(e)}"
+                    )
+
                 row = cur.fetchone()
     finally:
         conn.close()
+
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to create bot")
 
     return {
         "id": str(row["id"]),
@@ -221,6 +206,38 @@ async def create_bot(payload: dict, user = Depends(current_user)):
         "created_at": row["created_at"].isoformat(),
         "updated_at": row["updated_at"].isoformat(),
     }
+
+@app.get("/api/bots")
+async def get_bots(user = Depends(current_user)):
+    user_id = user["id"]
+
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, name, scenario, created_at, updated_at
+                    FROM bot_model
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    """,
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "id": str(row["id"]),
+            "name": row["name"],
+            "scenario": row["scenario"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+        for row in rows
+    ]
 
 
 @app.put("/api/bots/{bot_id}")

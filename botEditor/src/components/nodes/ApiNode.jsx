@@ -1,6 +1,5 @@
 import { Handle, Position } from "reactflow";
-// TODO: добавить проверку типов
-
+import PropTypes from "prop-types";
 export default function ApiNode({ data }) {
   return (
     <div className="node api">
@@ -13,3 +12,10 @@ export default function ApiNode({ data }) {
     </div>
   );
 }
+ApiNode.propTypes = {
+  data: PropTypes.shape({
+    label: PropTypes.string,
+    method: PropTypes.string,
+    url: PropTypes.string,
+  }).isRequired,
+};

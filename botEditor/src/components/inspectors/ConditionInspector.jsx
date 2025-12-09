@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 
-function ConditionInspector({ node, updateNodeData, usedVars }) {
+export default function ConditionInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   return (
     <div>
@@ -42,9 +42,10 @@ function ConditionInspector({ node, updateNodeData, usedVars }) {
 }
 
 ConditionInspector.propTypes = {
-  node: PropTypes.object.isRequired,
+  node: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    data: PropTypes.object.isRequired,
+  }).isRequired,
   updateNodeData: PropTypes.func.isRequired,
   usedVars: PropTypes.array,
 };
-
-export default ConditionInspector;

@@ -1,7 +1,7 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
-// TODO: добавить проверку типов
+import PropTypes from "prop-types";
 
 export default function ChoiceNode({ data }) {
   return (
@@ -33,3 +33,15 @@ export default function ChoiceNode({ data }) {
     </div>
   );
 }
+ChoiceNode.propTypes = {
+  data: PropTypes.shape({
+    label: PropTypes.string,
+    prompt: PropTypes.oneOfType([PropTypes.string, PropTypes.node]),
+    options: PropTypes.arrayOf(
+      PropTypes.shape({
+        id: PropTypes.string.isRequired,
+        label: PropTypes.string.isRequired,
+      })
+    ),
+  }).isRequired,
+};

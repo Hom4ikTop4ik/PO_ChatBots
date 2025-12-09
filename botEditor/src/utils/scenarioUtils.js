@@ -223,5 +223,4 @@ export function parseVariablesFromText(text) {
   }
   return Array.from(vars);
 }
-
 export default null;

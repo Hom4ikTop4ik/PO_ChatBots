@@ -1,0 +1,243 @@
+/* src/components/BotsManager.css */
+
+.bots-manager {
+  height: 100%;
+  width: 100%;
+  padding: 24px 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  color: #333;
+}
+
+.bots-manager-header {
+  margin-bottom: 20px;
+}
+
+.bots-manager-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1976d2;
+}
+
+.bots-manager-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #607d8b;
+}
+
+.bots-manager-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+.bots-manager-new {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bots-manager-search {
+  margin-left: auto;
+  min-width: 220px;
+}
+
+/* Inputs */
+
+.bots-input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 2px solid #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  min-width: 220px;
+  background: #ffffff;
+}
+
+.bots-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+  background: #f5f9ff;
+}
+
+.bots-input::placeholder {
+  color: #9e9e9e;
+}
+
+.bots-input-search {
+  width: 260px;
+}
+
+/* Buttons */
+
+.bots-button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+.bots-button-primary {
+  background: #1976d2;
+  color: #ffffff;
+}
+
+.bots-button-primary:hover {
+  background: #1565c0;
+  box-shadow: 0 4px 8px rgba(25, 118, 210, 0.25);
+}
+
+.bots-button-secondary {
+  background: #ffffff;
+  color: #1976d2;
+  border: 1px solid #1976d2;
+}
+
+.bots-button-secondary:hover {
+  background: #e3f2fd;
+  box-shadow: 0 4px 8px rgba(25, 118, 210, 0.2);
+}
+
+.bots-button-danger {
+  background: #d32f2f;
+  color: #ffffff;
+}
+
+.bots-button-danger:hover {
+  background: #c62828;
+  box-shadow: 0 4px 8px rgba(211, 47, 47, 0.25);
+}
+
+/* Content */
+
+.bots-manager-content {
+  flex: 1;
+  min-height: 0;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  padding: 16px 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.06);
+  overflow-y: auto;
+}
+
+/* Empty states */
+
+.bots-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #607d8b;
+}
+
+.bots-empty-muted {
+  font-size: 14px;
+}
+
+.bots-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #455a64;
+}
+
+.bots-empty-text {
+  font-size: 13px;
+}
+
+/* List */
+
+.bots-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bots-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ffffff 0%, #f5f9ff 100%);
+  border: 1px solid #e0e7ff;
+  transition: all 0.2s ease;
+}
+
+.bots-item:hover {
+  box-shadow: 0 6px 16px rgba(25, 118, 210, 0.15);
+  transform: translateY(-1px);
+}
+
+.bots-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bots-item-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2933;
+}
+
+.bots-item-meta {
+  font-size: 12px;
+  color: #607d8b;
+}
+
+.bots-item-meta-light {
+  color: #90a4ae;
+}
+
+.bots-item-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: 40px;
+}
+
+/* Адаптив */
+
+@media (max-width: 768px) {
+  .bots-manager {
+    padding: 16px;
+  }
+
+  .bots-manager-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bots-manager-search {
+    margin-left: 0;
+  }
+
+  .bots-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bots-item-actions {
+    margin-left: 0;
+    margin-top: 8px;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}

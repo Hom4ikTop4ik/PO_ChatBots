@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-function ApiInspector({ node, updateNodeData }) {
+export default function ApiInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
     <div>
@@ -86,5 +86,3 @@ ApiInspector.propTypes = {
   }).isRequired,
   updateNodeData: PropTypes.func.isRequired,
 };
-
-export default ApiInspector;

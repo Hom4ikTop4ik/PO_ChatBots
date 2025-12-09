@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { toScenario } from "../utils/scenarioUtils";
-
-// TODO: добавить проверку типов
+import PropTypes from "prop-types";
 // TODO: вынести html в отдельные компоненты
 // TODO: добавить обработку api блока
 // TODO: добавить поддержку разных типов переменных (числа, булевы и т.д.)
@@ -323,3 +322,9 @@ export default function ChatPreview({ nodes, edges, globalVariables }) {
     </div>
   );
 }
+
+ChatPreview.propTypes = {
+  nodes: PropTypes.arrayOf(PropTypes.object).isRequired,
+  edges: PropTypes.arrayOf(PropTypes.object).isRequired,
+  globalVariables: PropTypes.arrayOf(PropTypes.string),
+};

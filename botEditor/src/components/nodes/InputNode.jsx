@@ -1,6 +1,6 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
-// TODO: добавить проверку типов
+import PropTypes from "prop-types";
 
 export default function InputNode({ data }) {
   return (
@@ -13,3 +13,11 @@ export default function InputNode({ data }) {
     </div>
   );
 }
+
+InputNode.propTypes = {
+  data: PropTypes.shape({
+    label: PropTypes.string,
+    prompt: PropTypes.oneOfType([PropTypes.string, PropTypes.node]),
+    variableName: PropTypes.string,
+  }).isRequired,
+};

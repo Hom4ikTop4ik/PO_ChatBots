@@ -78,6 +78,7 @@ export function fromScenario(scenario) {
         data.expression = block.Params?.expression || "";
         break;
       case "choice":
+        data.resultVariable = block.Params?.var || "";
         data.prompt = block.Params?.prompt || "";
         data.options = block.Params?.options || [];
         break;
@@ -134,6 +135,7 @@ export function toScenario(nodes, edges) {
         params.expression = node.data.expression || "";
         break;
       case "choice":
+        params.var = node.data.resultVariable || "";
         params.prompt = node.data.prompt || "";
         params.options = node.data.options || [];
         break;
@@ -186,6 +188,7 @@ export function createDefaultDataForType(type) {
     case "choice":
       return {
         label: "Варианты",
+        resultVariable: "choice1",
         prompt: "Выберите вариант",
         options: [
           { id: "opt1", label: "Да", value: "yes" },

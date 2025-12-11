@@ -1,179 +1,161 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toScenario } from "../utils/scenarioUtils";
+import { PreviewJSBridge } from "./JsBridge";
 
-// TODO: добавить проверку типов
+
 // TODO: вынести html в отдельные компоненты
-// TODO: добавить обработку api блока
-// TODO: добавить поддержку разных типов переменных (числа, булевы и т.д.)
-// TODO: улучшить безопасность evaluateExpression и исправить работу блока условия для строк
 export default function ChatPreview({ nodes, edges, globalVariables }) {
   const [open, setOpen] = useState(false);
+
+  const [inputValue, setInputValue] = useState("");
+
   const [messages, setMessages] = useState([]);
-  const [currentBlockId, setCurrentBlockId] = useState(null);
   const [waitingForInput, setWaitingForInput] = useState(false);
   const [pendingInput, setPendingInput] = useState(null);
   const [choiceOptions, setChoiceOptions] = useState([]);
-  const [inputValue, setInputValue] = useState("");
-  const [variables, setVariables] = useState({});
+
+  const pyodideRef = useRef(null);
+  const [pyodide, setPyodide] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const jsBridgeRef = useRef(null);
 
   useEffect(() => {
-    const initVars = {};
-    (globalVariables || []).forEach((v) => {
-      initVars[v] = "";
-    });
-    setVariables(initVars);
-  }, [globalVariables, open]);
+    console.log("waitingForInput:", waitingForInput);
+  }, [waitingForInput]);
 
+  // 1️⃣ Первый useEffect — загрузка Pyodide и Python‑файлов
   useEffect(() => {
-    if (open) {
-      startChat();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || waitingForInput || !currentBlockId) return;
-    const scenario = toScenario(nodes, edges);
-    const blockMap = {};
-    scenario.Blocks.forEach((b) => {
-      blockMap[b.Block_id] = b;
-    });
-    const block = blockMap[currentBlockId];
-    if (!block) return;
-    const type = block.Type;
-    switch (type) {
-      case "start": {
-        const next = block.Connections.Out && block.Connections.Out[0];
-        setCurrentBlockId(next || null);
-        break;
-      }
-      case "sendMessage": {
-        const text = replaceVars(block.Params?.message || "");
-        addBotMessage(text);
-        const next = block.Connections.Out && block.Connections.Out[0];
-        setTimeout(() => setCurrentBlockId(next || null), 300);
-        break;
-      }
-      case "getMessage": {
-        const prompt = replaceVars(block.Params?.message || "");
-        addBotMessage(prompt);
-        setPendingInput({
-          varName: block.Params?.var || "",
-          next: block.Connections.Out && block.Connections.Out[0],
-        });
-        setWaitingForInput(true);
-        break;
-      }
-      case "condition": {
-        const expr = block.Params?.expression || "";
-        const result = evaluateExpression(expr);
-        const index = result ? 0 : 1;
-        const next = block.Connections.Out && block.Connections.Out[index];
-        setTimeout(() => setCurrentBlockId(next || null), 100);
-        break;
-      }
-      case "choice": {
-        const prompt = replaceVars(block.Params?.prompt || "");
-        const options = block.Params?.options || [];
-        addBotMessage(prompt);
-        const outs = block.Connections.Out || [];
-        const optsWithNext = options.map((opt, idx) => ({
-          ...opt,
-          next: outs[idx],
-        }));
-        setChoiceOptions(optsWithNext);
-        setWaitingForInput(true);
-        break;
-      }
-      case "api": {
-        const varName = block.Params?.resultVariable;
-        if (varName) {
-          setVariables((vars) => ({ ...vars, [varName]: "" }));
+    async function loadPyodideOnce() {
+      try {
+        if (window.pyodidePromise) {
+          const pyodideInstance = await window.pyodidePromise;
+          setPyodide(pyodideInstance);
+          pyodideRef.current = pyodideInstance;
+          return;
         }
-        const next = block.Connections.Out && block.Connections.Out[0];
-        setTimeout(() => setCurrentBlockId(next || null), 100);
-        break;
-      }
-      case "final": {
-        addBotMessage("Диалог завершен.");
-        setCurrentBlockId(null);
-        break;
-      }
-      default:
-        setCurrentBlockId(null);
-        break;
-    }
-  }, [open, currentBlockId, waitingForInput]);
 
-  const startChat = () => {
+        setLoading(true);
+
+        // Загружаем Pyodide
+        window.pyodidePromise = (async () => {
+          const { loadPyodide } = await import("pyodide");
+          return await loadPyodide({
+            indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/",
+            stdout: (text) => console.log("[Python]", text),
+            stderr: (text) => console.error("[Python Error]", text),
+          });
+        })();
+
+        const pyodideInstance = await window.pyodidePromise;
+        setPyodide(pyodideInstance);
+        pyodideRef.current = pyodideInstance;
+
+        // Подключаем micropip и pyodide-http
+        await pyodideInstance.loadPackage(["micropip"]);
+        const micropip = pyodideInstance.pyimport("micropip");
+        await micropip.install(["aiohttp", "pyodide-http"]);
+
+        pyodideInstance.runPython(`
+          import pyodide_http
+          pyodide_http.patch_all()
+        `);
+
+        // Загружаем Python‑файлы
+        const [apiResponse, interpreterResponse, mainResponse] = await Promise.all([
+          fetch("/python/api_preview.py"),
+          fetch("/python/bot_interpreter.py"),
+          fetch("/python/main_preview.py"),
+        ]);
+
+        if (!apiResponse.ok || !interpreterResponse.ok || !mainResponse.ok) {
+          throw new Error("Python файлы не найдены");
+        }
+
+        const [apiPreviewCode, botInterpreterCode, mainPreviewCode] =
+          await Promise.all([
+            apiResponse.text(),
+            interpreterResponse.text(),
+            mainResponse.text(),
+          ]);
+
+        // Записываем файлы в виртуальную FS
+        const FS = pyodideInstance.FS;
+        FS.mkdir("/python");
+        FS.writeFile("/python/__init__.py", "");
+        FS.writeFile("/python/api_preview.py", apiPreviewCode);
+        FS.writeFile("/python/bot_interpreter.py", botInterpreterCode);
+        FS.writeFile("/python/main_preview.py", mainPreviewCode);
+
+        // Передаём JS‑мост
+        pyodideInstance.globals.set("js_bridge", jsBridgeRef.current);
+
+        // Инициализация модулей
+        pyodideInstance.runPython(`
+  import sys
+  sys.path.append('/python')
+  from main_preview import init_preview, start_preview
+  init_preview(js_bridge)
+        `);
+
+        setError(null);
+      } catch (err) {
+        console.error("Failed to load Pyodide:", err);
+        setError("Не удалось загрузить Python интерпретатор или файлы.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPyodideOnce();
+  }, []);
+
+  // инициализируем ~~любимку~~ JS bridge
+  useEffect(() => {
+    jsBridgeRef.current = new PreviewJSBridge(
+      setMessages,
+      setWaitingForInput,
+      setPendingInput,
+      setChoiceOptions
+    );
+  }, []);
+
+  // 2️⃣ Второй useEffect — запуск превью при открытии окна
+  // ВРОДЕ при открытии всё заново, не храним состояние между открытиями
+  useEffect(() => {
+    async function maybeStart() {
+      if (open && pyodideRef.current) {
+        const botModel = toScenario(nodes, edges);
+        resetChatState();
+        await pyodideRef.current.runPythonAsync(`
+          start_preview(${JSON.stringify(JSON.stringify(botModel))})
+        `);
+      }
+    }
+    maybeStart();
+  }, [open, pyodide]);
+
+  function resetChatState() {
     setMessages([]);
     setChoiceOptions([]);
     setWaitingForInput(false);
     setPendingInput(null);
-    const scenario = toScenario(nodes, edges);
-    const startId = scenario.Start || nodes.find((n) => n.type === "start")?.id;
-    if (!startId) {
-      setMessages([
-        { from: "bot", text: "Сценарий не имеет стартового блока" },
-      ]);
-      setCurrentBlockId(null);
-    } else {
-      setCurrentBlockId(startId);
-    }
-  };
-
-  const replaceVars = (text) => {
-    return text.replace(/\$\{([^}]+)\}/g, (_, v) => {
-      return variables[v] !== undefined ? variables[v] : "";
-    });
-  };
-
-  const addBotMessage = (text) => {
-    setMessages((msgs) => [...msgs, { from: "bot", text }]);
-  };
-
-  const evaluateExpression = (expr) => {
-    try {
-      const replaced = expr.replace(
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g,
-        (match) => {
-          if (Object.prototype.hasOwnProperty.call(variables, match)) {
-            const val = variables[match];
-            if (val === true || val === "true") return "true";
-            if (val === false || val === "false") return "false";
-            if (!isNaN(val)) return val;
-            return `'${val}'`;
-          }
-          return match;
-        }
-      );
-      const fn = Function(`return (${replaced})`);
-      return !!fn();
-    } catch (e) {
-      return false;
-    }
-  };
+  }
 
   const handleUserInput = () => {
     if (!inputValue.trim()) return;
+    
     const val = inputValue;
-    setMessages((msgs) => [...msgs, { from: "user", text: val }]);
-    const { varName, next } = pendingInput || {};
-    if (varName) {
-      setVariables((vars) => ({ ...vars, [varName]: val }));
-    }
+    setMessages(prev => [...prev, { from: "user", text: val }]);
+    jsBridgeRef.current.provideInput(val);
+
     setInputValue("");
-    setWaitingForInput(false);
-    setPendingInput(null);
-    setChoiceOptions([]);
-    setCurrentBlockId(next || null);
   };
 
   const handleChoiceSelect = (opt) => {
-    setMessages((msgs) => [...msgs, { from: "user", text: opt.label }]);
-    setWaitingForInput(false);
-    setChoiceOptions([]);
-    setPendingInput(null);
-    setCurrentBlockId(opt.next || null);
+    setMessages(prev => [...prev, { from: "user", text: opt.label }]);
+    jsBridgeRef.current.provideChoice(opt.id);
   };
 
   return (

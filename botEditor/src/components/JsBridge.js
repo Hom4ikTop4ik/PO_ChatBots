@@ -1,54 +1,111 @@
-// JSBridge.js
+// JsBridge.js
 
 export class PreviewJSBridge {
-  constructor(setMessages, setWaitingForInput, setPendingInput, setChoiceOptions) {
+  constructor(setMessages, setWaitingForInput, setChoiceOptions) {
+    // Сеттеры для управления UI
     this.setMessages = setMessages;
     this.setWaitingForInput = setWaitingForInput;
-    this.setPendingInput = setPendingInput;
     this.setChoiceOptions = setChoiceOptions;
-    this.inputResolve = null;
-    this.choiceResolve = null;
+
+    // Ссылки на Python-функции (будут установлены из main_preview.py)
+    this.pyCallbackText = null;
+    this.pyCallbackChoice = null;
   }
+
+  // ==========================================
+  // PYTHON -> JS (Вывод данных в UI)
+  // ==========================================
 
   async add_message(text, is_bot = true) {
-      console.log("smth");
-      this.setMessages(prev => [...prev, { from: is_bot ? "bot" : "user", text }]);
-      console.log("ABOBA");
-      return 1;
+    this.setMessages((prev) => [
+      ...prev,
+      { from: is_bot ? "bot" : "user", text },
+    ]);
   }
 
-  // Python сам вызовет add_message(prompt) перед get_user_input
-  async get_user_input(varName = null, next = null) {
-    this.setPendingInput({ varName, next });
+  async activate_input_mode() {
     this.setWaitingForInput(true);
-    return new Promise(resolve => {
-      this.inputResolve = resolve;
-    });
   }
 
-  async get_user_choice(options) {
+  async show_choices(text, choices) {
+    await this.add_message(text, true);
+    const options =
+      choices && typeof choices.toJs === "function" ? choices.toJs() : choices;
     this.setChoiceOptions(options);
     this.setWaitingForInput(true);
-    return new Promise(resolve => {
-      this.choiceResolve = resolve;
-    });
+  }
+  async show_choices(text, choices) {
+    await this.add_message(text, true);
+
+    // Мы передаем { dict_converter: Object.fromEntries }
+    // Это заставляет Pyodide превращать Python dict в JS Object, а не Map.
+    const options = choices && typeof choices.toJs === "function" 
+        ? choices.toJs({ dict_converter: Object.fromEntries }) 
+        : choices;
+
+    console.log("[JSBridge] Received options:", options); // Для отладки
+    this.setChoiceOptions(options);
+    this.setWaitingForInput(true);
   }
 
-  provideInput(text) {
-    if (this.inputResolve) {
-      this.inputResolve(text);
-      this.inputResolve = null;
-    }
-    this.setWaitingForInput(false);
-    this.setPendingInput(null);
+  // ==========================================
+  // ИНИЦИАЛИЗАЦИЯ (Вызывается из Python)
+  // ==========================================
+
+  /**
+   * Python передает сюда свои функции, чтобы мы могли их вызывать.
+   * @param {Function} onText - функция python для приема текста
+   * @param {Function} onChoice - функция python для приема выбора кнопки
+   */
+  bindPythonCallbacks(onText, onChoice) {
+    this.pyCallbackText = onText;
+    this.pyCallbackChoice = onChoice;
+    console.log("[JSBridge] Callbacks bound successfully");
   }
 
-  provideChoice(choiceId) {
-    if (this.choiceResolve) {
-      this.choiceResolve(choiceId);
-      this.choiceResolve = null;
+  // ==========================================
+  // JS (REACT) -> PYTHON (Отправка данных)
+  // ==========================================
+
+  /**
+   * Вызывается из React, когда юзер ввел текст и нажал Enter
+   */
+  async sendUserText(text) {
+    // Сначала обновляем UI, чтобы не ждать Python
+    await this.add_message(text, false);
+    
+    // Передаем данные в Python
+    if (this.pyCallbackText) {
+      try {
+        await this.pyCallbackText(text);
+      } catch (err) {
+        console.error("[JSBridge] Error calling Python text handler:", err);
+      }
+    } else {
+      console.warn("[JSBridge] Python handlers not bound yet");
     }
-    this.setWaitingForInput(false);
+  }
+
+  /**
+   * Вызывается из React, когда юзер нажал кнопку
+   */
+  async sendUserChoice(option) {
+    // Обновляем UI
+    await this.add_message(option.label, false);
+    
+    // Убираем кнопки
     this.setChoiceOptions([]);
+    
+    // Блокируем ввод сразу после клика
+    this.setWaitingForInput(false);
+
+    // Передаем ID в Python
+    if (this.pyCallbackChoice) {
+      try {
+        await this.pyCallbackChoice(option.id);
+      } catch (err) {
+        console.error("[JSBridge] Error calling Python choice handler:", err);
+      }
+    }
   }
 }

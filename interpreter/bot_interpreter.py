@@ -1,26 +1,31 @@
 # bot_interpreter.py
 import logging
+import aiohttp
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# Импортируем наши интерфейсы
+from bot_api_interface import BotAPI
+from state_storage import StateStorage, MemoryStorage
 
+logger = logging.getLogger(__name__)
 
 class BotInterpreter:
     """
-    Платформенно-независимый интерпретатор сценариев.
-    Взаимодействие с пользователем только через self.api:
-      - send_message(user_id, text)
-      - get_message(user_id, prompt) -> str
-      - get_choice(user_id, text, choices) -> str (callback_data / option id)
-    Состояния хранятся в памяти через save_state/load_state (словарь).
+    Асинхронный интерпретатор сценариев.
+    Работает по принципу конечного автомата (State Machine).
+    Не блокирует поток ожиданиям ввода пользователя.
     """
 
-    def __init__(self, bot_model: Dict[str, Any], api: Optional[Any] = None):
+    def __init__(self, bot_model: Dict[str, Any], api: BotAPI, storage: Optional[StateStorage] = None):
         self.model = bot_model
-        self.api = api  # должен иметь set_interpreter вызываемый в main
+        self.api = api
+        # Если хранилище не передали, используем in-memory (для тестов)
+        self.storage = storage if storage else MemoryStorage()
+        
         self.blocks = {b["Block_id"]: b for b in bot_model["Blocks"]}
-        self.sessions: Dict[int, Dict[str, Any]] = {}  # user_id -> session dict
+        
+        # Глобальные переменные (конфигурация)
+        self.global_vars = {v["name"]: v.get("default", "") for v in self.model.get("GlobalVariables", [])}
 
         self.block_handlers = {
             "start": self._handle_start_block,
@@ -33,437 +38,349 @@ class BotInterpreter:
         }
 
     # -------------------------
-    # state persistence (in-memory)
+    # Публичные методы (Lifecycle)
     # -------------------------
-    def save_state(self, user_id: int, session: Dict[str, Any]):
-        """Сохранить/обновить состояние пользователя (в памяти)."""
-        self.sessions[user_id] = session
 
-    def load_state(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Загрузить состояние пользователя (или None)."""
-        return self.sessions.get(user_id)
-
-    # -------------------------
-    # lifecycle: start / resume
-    # -------------------------
     async def start_dialog(self, user_id: int, init_meta: Dict[str, Any]):
         """
-        Начало диалога: вызывается адаптером при /start.
-        init_meta содержит минимум: username, first_name, user_id.
-        Также инициализируются GlobalVariables из модели.
+        Запуск новой сессии.
         """
-        # Собрать начальные переменные из GlobalVariables
-        init_vars = {}
-        for var in self.model.get("GlobalVariables", []):
-            init_vars[var["name"]] = var.get("default", "")
-
-        # Обновить базовые пользовательские поля
-        init_vars.update({
+        # 1. Инициализация переменных
+        variables = self.global_vars.copy()
+        variables.update({
             "username": init_meta.get("username", ""),
             "first_name": init_meta.get("first_name", ""),
-            "user_id": init_meta.get("user_id", user_id)
+            "user_id": user_id
         })
 
+        # 2. Создание структуры сессии
         session = {
             "current_block": self.model["Start"],
-            "variables": init_vars,
-            "step": 0,
+            "variables": variables,
+            "step": 0,      # Текущий шаг внутри блока (0 - вход, 1 - ожидание ввода)
             "active": True
         }
 
-        self.save_state(user_id, session)
-        logger.info(f"Новая сессия для пользователя {user_id}: {session}")
+        # 3. Сохранение и запуск
+        await self.storage.save_state(user_id, session)
+        logger.info(f"Session started for user {user_id}")
         await self._process_blocks(user_id)
 
     async def resume_dialog(self, user_id: int, input_data: Optional[str]):
         """
-        Возобновить выполнение диалога при входящих данных пользователя.
-        Используется одинаковый pipeline, как в старой системе.
+        Обработка входящего события (текст или нажатие кнопки).
         """
-
-        session = self.load_state(user_id)
-
-        # 1. Если сессии нет — создаём её и запускаем весь процесс блоков
-        if not session:
-            session = self.create_session(user_id)
-            await self._process_blocks(user_id)
+        session = await self.storage.load_state(user_id)
+        
+        # Если сессии нет или она завершена
+        if not session or not session.get("active"):
+            # Можно отправить сообщение в духе "Напишите /start"
+            await self.api.send_message(user_id, "Диалог не активен. Напишите /start")
             return
 
-        # 2. Если сессия неактивна — просто игнорируем
-        if not session.get("active", False):
-            return
-
-        block = self.blocks.get(session["current_block"])
+        block_id = session["current_block"]
+        block = self.blocks.get(block_id)
+        
         if not block:
-            logger.error(f"resume_dialog: блок {session['current_block']} не найден")
+            logger.error(f"Block {block_id} not found for user {user_id}")
             return
 
         handler = self.block_handlers.get(block["Type"])
-        if not handler:
-            logger.error(f"resume_dialog: нет обработчика блока {block['Type']}")
-            return
-
-        # --- Важно ---
-        # 3. Передаём input в блок
-        result = await handler(block, user_id, input_data)
-
-        # 4. Обрабатываем результат блока
-        await self._process_block_result(user_id, result)
-
-        # 5. Если блок НЕ сказал WAIT — продолжаем ЦИКЛ (как раньше)
-        if result != "wait":
-            await self._process_blocks(user_id)
-
+        if handler:
+            # Вызываем обработчик текущего блока, передавая input_data
+            result = await handler(block, user_id, session, input_data)
+            
+            # Обрабатываем результат (сохраняем state, переходим к следующему блоку и т.д.)
+            should_continue = await self._process_block_result(user_id, session, result)
+            
+            # Если блок завершился успешно и требует перехода дальше — запускаем цикл
+            if should_continue:
+                await self._process_blocks(user_id)
 
     # -------------------------
-    # основной цикл обработки блоков
+    # Ядро (Core Loop)
     # -------------------------
+
     async def _process_blocks(self, user_id: int):
-        """Выполняет блоки последовательно, пока блоки не требуют ввода."""
-        session = self.load_state(user_id)
+        """
+        Крутит цикл блоков, которые выполняются автоматически (без участия пользователя).
+        Останавливается, когда блок возвращает 'wait' (ждет ввода) или 'break' (конец).
+        """
+        while True:
+            # Всегда перезагружаем состояние, чтобы иметь актуальные данные
+            session = await self.storage.load_state(user_id)
+            if not session or not session.get("active"):
+                break
 
-        while session and session.get("active"):
-            block = self.blocks.get(session["current_block"])
+            block_id = session["current_block"]
+            block = self.blocks.get(block_id)
             if not block:
-                logger.error(f"process_blocks: блок {session['current_block']} не найден")
-                session["active"] = False
-                self.save_state(user_id, session)
                 break
 
             handler = self.block_handlers.get(block["Type"])
             if not handler:
-                logger.error(f"process_blocks: нет обработчика для {block['Type']}")
-                session["active"] = False
-                self.save_state(user_id, session)
+                logger.error(f"No handler for block type {block.get('Type')}")
+                break
+            
+            # Вызов handler БЕЗ input_data (автоматический шаг)
+            # step должен быть 0 (или специфичный для логики блока)
+            result = await handler(block, user_id, session, input_data=None)
+
+            # Обработка результата
+            should_continue = await self._process_block_result(user_id, session, result)
+
+            if not should_continue:
+                # Если wait или break — выходим из цикла, освобождаем worker
                 break
 
-            # вызов БЕЗ input (циклическая фаза)
-            result = await handler(block, user_id, None)
-
-            await self._process_block_result(user_id, result)
-
-            # если блок ждёт ввода → прерваться
-            if result == "wait":
-                self.save_state(user_id, session)
-                break
-
-            # если break → остановить
-            if result == "break":
-                session = self.load_state(user_id)
-                break
-
-            session = self.load_state(user_id)
-
-    async def _process_block_result(self, user_id: int, result: str):
+    async def _process_block_result(self, user_id: int, session: Dict[str, Any], result: str) -> bool:
         """
-        Обработка результата ("continue", "wait", "break") после выполнения блока.
+        Логика переходов и сохранения.
+        Возвращает True, если нужно продолжать цикл (_process_blocks).
+        Возвращает False, если нужно остановиться (ждать ввода или конец).
         """
-        session = self.load_state(user_id)
-        if not session:
-            return
-
+        
         if result == "continue":
+            # Стандартный переход: берем первый выход
             current_block = self.blocks.get(session["current_block"])
-            out_conns = current_block["Connections"].get("Out", [])
+            out_conns = current_block.get("Connections", {}).get("Out", [])
+            
             if out_conns:
                 session["current_block"] = out_conns[0]
                 session["step"] = 0
-                self.save_state(user_id, session)
+                await self.storage.save_state(user_id, session)
+                return True # Продолжаем цикл
             else:
-                # диалог завершён
+                # Тупик — завершаем диалог
                 session["active"] = False
-                self.save_state(user_id, session)
+                await self.storage.save_state(user_id, session)
+                return False
+
+        elif result == "manual_switch":
+            # Блок САМ изменил session["current_block"] (Choice, Condition)
+            # Нам нужно просто сбросить шаг и сохранить
+            session["step"] = 0
+            await self.storage.save_state(user_id, session)
+            return True # Продолжаем цикл с новым блоком
+
+        elif result == "wait":
+            # Блок ждет ввода пользователя. Сохраняем состояние (обычно step=1) и выходим.
+            await self.storage.save_state(user_id, session)
+            return False
 
         elif result == "break":
+            # Явное завершение диалога
             session["active"] = False
-            self.save_state(user_id, session)
-
-        # "wait" — ничего не делаем; предположено, что handler уже сохранил состояние
+            await self.storage.save_state(user_id, session)
+            return False
+            
+        return False
 
     # -------------------------
-    # обработчики типов блоков
+    # Обработчики блоков
     # -------------------------
-    async def _handle_start_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str]):
+
+    async def _handle_start_block(self, block, user_id, session, input_data):
         return "continue"
 
-    async def _handle_send_message_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str]):
-        session = self.load_state(user_id)
-        message_text = block["Params"]["message"]
-        formatted = self._format_message(message_text, session["variables"])
-        await self.api.send_message(user_id, formatted)
+    async def _handle_send_message_block(self, block, user_id, session, input_data):
+        text = self._format_text(block["Params"]["message"], session["variables"])
+        await self.api.send_message(user_id, text)
         return "continue"
 
-    async def _handle_get_message_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str]):
+    async def _handle_get_message_block(self, block, user_id, session, input_data):
         """
-        Обработка блока getMessage с поддержкой типов:
-        string, int, float, boolean
+        Step 0: Отправить вопрос, установить step=1, вернуть 'wait'.
+        Step 1: Проверить input_data. Если ок -> сохранить, 'continue'. Иначе -> ошибка, 'wait'.
         """
-        session = self.load_state(user_id)
-        if not session:
-            return "break"
-
+        step = session.get("step", 0)
         var_name = block["Params"]["var"]
         expected_type = block["Params"].get("type", "string")
 
-        # Шаг 0: отправка промпта пользователю
-        if session["step"] == 0:
-            prompt = block["Params"]["message"]
-            formatted_prompt = self._format_message(prompt, session["variables"])
-            await self.api.send_message(user_id, formatted_prompt)
-
-            session["step"] = 1  # ожидаем ввод
-            self.save_state(user_id, session)
-            return "wait"
-
-        # Шаг 1: обработка пришедшего input_data
-        if session["step"] == 1 and input_data is not None:
-            value = input_data
-
-            # Попытка преобразовать к нужному типу
+        # --- ФАЗА 1: Обработка ответа (Resume) ---
+        if step == 1 and input_data is not None:
             try:
-                if expected_type == "string":
-                    value = str(value)
-                elif expected_type == "int":
-                    value = int(value)
-                elif expected_type in ("float", "double"):
-                    value = float(value)
-                elif expected_type == "boolean":
-                    # для boolean принимаем 'true', 'false' (регистронезависимо)
-                    if str(value).lower() in ("true", "1", "yes"):
-                        value = True
-                    elif str(value).lower() in ("false", "0", "no"):
-                        value = False
-                    else:
-                        raise ValueError(f"Невозможно преобразовать {value} в boolean")
-                else:
-                    # неизвестный тип — оставляем как строку
-                    value = str(value)
-
-            except Exception:
-                # Ошибка преобразования — сообщаем пользователю и возвращаемся к этому же блоку
-                await self.api.send_message(user_id, f"Ошибка: введённое значение должно быть типа {expected_type}. Попробуйте ещё раз.")
-                session["step"] = 0  # повторяем ввод
-                self.save_state(user_id, session)
+                val = self._cast_type(input_data, expected_type)
+                session["variables"][var_name] = val
+                session["step"] = 0 
+                return "continue"
+            except ValueError:
+                await self.api.send_message(user_id, f"Ошибка: ожидается тип {expected_type}. Попробуйте снова.")
+                # Остаемся на шаге 1, ждем новый ввод
                 return "wait"
 
-            # Успешное преобразование — сохраняем и продолжаем
-            session["variables"][var_name] = value
-            session["step"] = 0
-            self.save_state(user_id, session)
-            return "continue"
+        # --- ФАЗА 0: Запрос (Entry) ---
+        if step == 0:
+            prompt = self._format_text(block["Params"]["message"], session["variables"])
+            # Отправляем сообщение и говорим API "включи ввод"
+            await self.api.get_message(user_id, prompt)
+            
+            session["step"] = 1
+            return "wait"
 
         return "wait"
 
-
-    async def _handle_choice_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str]):
+    async def _handle_choice_block(self, block, user_id, session, input_data):
         """
-        choice: блокирующая реализация.
-        При step==0: сохранить step=1, вызвать api.get_choice (await) — ждём нажатия.
-        После получения — сохранить переменную и перейти по соответствующему выходу.
+        Step 0: Отправить кнопки, step=1, 'wait'.
+        Step 1: Найти кнопку по ID. Если ок -> manual_switch. Иначе -> 'wait'.
         """
-        session = self.load_state(user_id)
+        step = session.get("step", 0)
 
-        if session["step"] == 0:
-            prompt = self._format_message(block["Params"]["prompt"], session["variables"])
+        # --- ФАЗА 1: Обработка выбора ---
+        if step == 1 and input_data is not None:
             options = block["Params"]["options"]
-            choices = [{"text": opt["label"], "value": opt["id"]} for opt in options]
+            # input_data — это ID кнопки (callback_data)
+            selected = next((o for o in options if str(o["id"]) == str(input_data)), None)
+            
+            if not selected:
+                # Если нажата старая кнопка или мусор
+                await self.api.send_message(user_id, "Эта опция уже недоступна или неверна.")
+                return "wait"
 
-            # Ставим сессию в ожидание (на будущее, если нужно восстановление)
-            session["step"] = 1
-            self.save_state(user_id, session)
-
-            selected_id = await self.api.get_choice(user_id=user_id, text=prompt, choices=choices)
-            # После await выполнится переход ниже
-
-            # Обработаем выбранный id
-            input_data = selected_id
-
-        if session["step"] == 1 and input_data is not None:
-            options = block["Params"]["options"]
-            selected_option = next((o for o in options if o["id"] == input_data), None)
-            if not selected_option:
-                # некорректный выбор — заканчиваем диалог
-                logger.error(f"Выбран несуществующий вариант {input_data} для пользователя {user_id}")
-                session["step"] = 0
-                self.save_state(user_id, session)
-                return "break"
-
-            # сохраняем значение переменной
+            # Сохраняем значение
             var_name = block["Params"]["var"]
-            session["variables"][var_name] = selected_option["value"]
+            session["variables"][var_name] = selected["value"]
 
-            # вычисляем индекс опции и переходим по соответствующему Out
-            idx = options.index(selected_option)
+            # Определяем, куда идти (manual switch)
+            idx = options.index(selected)
             out_conns = block["Connections"].get("Out", [])
+            
             if idx < len(out_conns):
                 session["current_block"] = out_conns[idx]
+                return "manual_switch"
+            else:
+                # Ветка не подключена
+                logger.warning(f"Choice block {block['Block_id']}: branch {idx} not connected")
+                return "break"
 
-            session["step"] = 0
-            self.save_state(user_id, session)
-            return "continue"
+        # --- ФАЗА 0: Отрисовка кнопок ---
+        if step == 0:
+            prompt = self._format_text(block["Params"]["prompt"], session["variables"])
+            # Формируем список для API
+            api_choices = [{"label": o["label"], "id": o["id"]} for o in block["Params"]["options"]]
+            
+            await self.api.get_choice(user_id, prompt, api_choices)
+            
+            session["step"] = 1
+            return "wait"
 
         return "wait"
 
-    async def _handle_condition_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str] = None) -> str:
+    async def _handle_condition_block(self, block, user_id, session, input_data):
         """
-        Блок ветвления: вычисляет условие на основе переменных.
-        Переход к 'Yes' или 'No' ветке.
+        Вычисляет условие и меняет current_block.
         """
-        session = self.load_state(user_id)
-        if not session:
-            return "break"
-
-        # Предполагается, что блок содержит поле 'condition' — строку, которую можно eval
         condition_expr = block["Params"].get("condition", "False")
-
-        # Форматируем переменные в локальном namespace для eval
-        variables = session["variables"]
         try:
-            result = eval(condition_expr, {}, variables)
+            # Безопаснее использовать simpleeval, но пока eval
+            # Обязательно преобразуем переменные в нужные типы перед этим, если надо
+            res = eval(condition_expr, {"__builtins__": {}}, session["variables"])
         except Exception as e:
-            logger.error(f"Ошибка вычисления условия для пользователя {user_id}: {e}")
-            result = False
+            logger.error(f"Condition error user {user_id}: {e}")
+            res = False
 
-        # Выбор ветви
         out_conns = block["Connections"].get("Out", [])
-        if result and len(out_conns) >= 1:
-            session["current_block"] = out_conns[0]  # 'Да'
-        elif not result and len(out_conns) >= 2:
-            session["current_block"] = out_conns[1]  # 'Нет'
-        else:
-            logger.warning(f"Блок ветвления {block['Block_id']} для {user_id} не имеет нужной ветви")
-            session["active"] = False
-            self.save_state(user_id, session)
-            return "break"
+        
+        # Индекс: 0 - True, 1 - False
+        idx = 0 if res else 1
+        
+        if idx < len(out_conns):
+            session["current_block"] = out_conns[idx]
+            return "manual_switch"
+        
+        return "break" # Если ветка не подключена
 
-        self.save_state(user_id, session)
-        return "continue"
-
-    import aiohttp
-
-    async def _handle_api_request_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str] = None) -> str:
+    async def _handle_api_request_block(self, block, user_id, session, input_data):
         """
-        Блок запроса к API: выполняет HTTP-запрос, сохраняет результат в переменные.
-        Переход к Success/Fail блокам.
+        Асинхронный HTTP запрос.
         """
-        session = self.load_state(user_id)
-        if not session:
-            return "break"
-
         params = block["Params"]
         url = params.get("url")
         method = params.get("method", "GET").upper()
         headers = params.get("headers", {})
-        body = params.get("body", None)
-        var_mapping = params.get("variables", {})  # {"json_field": "var_name"}
+        body = params.get("body", {})
+        var_mapping = params.get("variables", {}) # {"resp_field": "bot_var"}
 
         if not url:
-            logger.error(f"API block {block['Block_id']} без URL")
-            session["active"] = False
-            self.save_state(user_id, session)
             return "break"
 
+        status = 0
+        resp_data = {}
+
         try:
+            # Используем aiohttp для асинхронности
             async with aiohttp.ClientSession() as client:
                 if method == "GET":
                     async with client.get(url, headers=headers) as resp:
                         status = resp.status
-                        data = await resp.json()
-                else:
-                    async with client.request(method, url, json=body, headers=headers) as resp:
+                        if "application/json" in resp.headers.get("Content-Type", ""):
+                            resp_data = await resp.json()
+                        else:
+                            # Можно сохранить text если нужно
+                            pass
+                elif method == "POST":
+                    async with client.post(url, json=body, headers=headers) as resp:
                         status = resp.status
-                        data = await resp.json()
+                        if "application/json" in resp.headers.get("Content-Type", ""):
+                            resp_data = await resp.json()
 
-            if 200 <= status < 300:
-                # сохраняем переменные
-                for field, var_name in var_mapping.items():
-                    if field in data:
-                        session["variables"][var_name] = data[field]
-                # переход к ветке Success
-                out_conns = block["Connections"].get("Out", [])
-                if len(out_conns) >= 1:
-                    session["current_block"] = out_conns[0]
-                self.save_state(user_id, session)
-                return "continue"
-            else:
-                # переход к ветке Fail / Default
-                out_conns = block["Connections"].get("Out", [])
-                if len(out_conns) >= 2:
-                    session["current_block"] = out_conns[1]
-                self.save_state(user_id, session)
-                return "continue"
+            # Успех (2xx) или Провал
+            is_success = 200 <= status < 300
+            
+            # Сохраняем переменные (только при успехе, или всегда - зависит от логики)
+            if is_success:
+                for json_field, var_name in var_mapping.items():
+                    # Поддержка вложенности типа "user.id" не реализована для простоты, 
+                    # но тут можно доставать значения из resp_data
+                    if json_field in resp_data:
+                        session["variables"][var_name] = resp_data[json_field]
+
+            # Выбираем выход: 0 - Success, 1 - Fail
+            out_idx = 0 if is_success else 1
+            out_conns = block["Connections"].get("Out", [])
+            
+            if out_idx < len(out_conns):
+                session["current_block"] = out_conns[out_idx]
+                return "manual_switch"
 
         except Exception as e:
-            logger.error(f"API request error for user {user_id}: {e}")
-            session["active"] = False
-            self.save_state(user_id, session)
-            return "break"
+            logger.error(f"API Request failed: {e}")
+            # Пытаемся пойти по ветке Fail
+            out_conns = block["Connections"].get("Out", [])
+            if len(out_conns) > 1:
+                session["current_block"] = out_conns[1]
+                return "manual_switch"
 
+        return "break"
 
-    async def _handle_final_block(self, block: Dict[str, Any], user_id: int, input_data: Optional[str]):
-        session = self.load_state(user_id)
-        final_msg = "Диалог завершён. Собранные данные:\n"
+    async def _handle_final_block(self, block, user_id, session, input_data):
+        msg = "Диалог завершён. Результаты:\n"
         for k, v in session["variables"].items():
             if k not in ("username", "first_name", "user_id"):
-                final_msg += f"{k}: {v}\n"
-        await self.api.send_message(user_id, final_msg)
+                msg += f"{k}: {v}\n"
+        await self.api.send_message(user_id, msg)
         return "break"
 
     # -------------------------
-    # utility
+    # Утилиты
     # -------------------------
-    def _format_message(self, text: str, variables: Dict[str, Any]) -> str:
-        for key, value in variables.items():
-            placeholder = "${" + key + "}"
-            text = text.replace(placeholder, str(value))
+    def _format_text(self, text: str, variables: Dict[str, Any]) -> str:
+        # Простая подстановка ${var}
+        for k, v in variables.items():
+            placeholder = "${" + k + "}"
+            if placeholder in text:
+                text = text.replace(placeholder, str(v))
         return text
 
-    def create_session(self, user_id: int):
-        """Создать новую сессию как раньше в aiogram-версии."""
-        initial_vars = {}
-
-        for var in self.model.get("GlobalVariables", []):
-            initial_vars[var["name"]] = var.get("default", "")
-
-        # базовые данные о пользователе
-        initial_vars.update({
-            "user_id": user_id,
-            "username": "",
-            "first_name": "",
-        })
-
-        session = {
-            "current_block": self.model["Start"],
-            "variables": initial_vars,
-            "step": 0,
-            "active": True,
-        }
-
-        self.save_state(user_id, session)
-        return session
-
-    async def start_new_session(self, user_id: int):
-        """Создаёт новую сессию или перезапускает существующую"""
-        session = self.sessions.get(user_id)
-        if session:
-            # перезапускаем существующую сессию
-            session.update({
-                "current_block": self.model["Start"],
-                "step": 0,
-                "active": True
-            })
-        else:
-            # создаём новую
-            initial_vars = {var["name"]: var.get("default", "")
-                            for var in self.model.get("GlobalVariables", [])}
-            initial_vars.update({
-                "user_id": user_id,
-            })
-            self.sessions[user_id] = {
-                "current_block": self.model["Start"],
-                "variables": initial_vars,
-                "step": 0,
-                "active": True
-            }
-        return self.sessions[user_id]
-        
+    def _cast_type(self, value, expected_type):
+        if expected_type == "int":
+            return int(value)
+        if expected_type == "float":
+            return float(value)
+        if expected_type == "boolean":
+            s = str(value).lower()
+            if s in ("true", "1", "yes"): return True
+            if s in ("false", "0", "no"): return False
+            raise ValueError("Not a boolean")
+        return str(value)

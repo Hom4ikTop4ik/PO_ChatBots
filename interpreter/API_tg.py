@@ -1,170 +1,122 @@
-# API_tg.py
-import asyncio
+# api_tg.py
 import logging
-from typing import Dict, Any, List, Optional
-
-from aiogram import Bot, Dispatcher
+from typing import Optional, List, Dict, Any
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from bot_api_interface import BotAPI
 
+# Настройка логирования для этого файла
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
-
-class TelegramAPI:
+class TelegramAPI(BotAPI):
     """
-    Адаптер Telegram на aiogram.
-    Предоставляет:
-      - send_message(user_id, text)
-      - get_message(user_id, prompt) -> str
-      - get_choice(user_id, text, choices) -> str (value = option id)
-    Адаптер вызывает методы интерпретатора:
-      - interpreter.start_dialog(user_id, init_meta)
-      - interpreter.resume_dialog(user_id, input_data)
+    Адаптер Telegram на aiogram 3.x.
+    Работает в асинхронном режиме: отправляет запросы и сразу возвращает управление.
+    Входящие сообщения обрабатываются через хендлеры и передаются в resume_dialog.
     """
-
-    def __init__(self, token: str):
+    def __init__(self, token: str, interpreter = None):
         self.bot = Bot(token=token)
         self.dp = Dispatcher()
-        self.interpreter = None  # будет установлен в main
-
-        # futures для ожиданий конкретных пользователей
-        self._pending_text: Dict[int, asyncio.Future] = {}
-        self._pending_choice: Dict[int, asyncio.Future] = {}
-
-        # регистрируем хендлеры
-        self.dp.message.register(self._handle_user_message)
-        self.dp.message.register(self._handle_start_command, CommandStart())
-        self.dp.callback_query.register(self._handle_callback_query)
+        self.interpreter = interpreter
+        
+        # --- Регистрация хендлеров ---
+        # 1. Сначала команды (/start)
+        self.dp.message.register(self.cmd_start, CommandStart())
+        
+        # 2. Обработка нажатий на кнопки (CallbackQuery)
+        # Это ОБЯЗАТЕЛЬНО для работы get_choice
+        self.dp.callback_query.register(self.handle_callback)
+        
+        # 3. Текстовые сообщения (ловится всё остальное)
+        self.dp.message.register(self.handle_text)
 
     def set_interpreter(self, interpreter):
-        """Установить ссылку на интерпретатор (вызывается в main)."""
+        """Если интерпретатор создается позже API, можно использовать этот метод"""
         self.interpreter = interpreter
 
-    # -------------------------
-    # handlers
-    # -------------------------
-    async def _handle_start_command(self, message: Message):
+    async def run(self):
+        logger.info("Starting Telegram Polling...")
+        await self.dp.start_polling(self.bot)
+
+    # --- Implementation of BotAPI (Methods called by Interpreter) ---
+    
+    async def send_message(self, user_id: int, text: str):
+        try:
+            await self.bot.send_message(chat_id=user_id, text=text)
+        except Exception as e:
+            logger.error(f"Error sending message to {user_id}: {e}")
+
+    async def get_message(self, user_id: int, prompt: Optional[str] = None) -> Optional[str]:
+        """
+        Интерпретатор просит текст.
+        Мы отправляем промпт (если есть) и выходим.
+        Ничего не возвращаем, чтобы интерпретатор ушел в состояние 'wait'.
+        """
+        if prompt:
+            await self.send_message(user_id, prompt)
+        return None
+
+    async def get_choice(self, user_id: int, prompt: str, choices: list) -> Optional[str]:
+        """
+        Интерпретатор просит выбор.
+        Мы рисуем кнопки и выходим.
+        """
+        # choices: [{"label": "Да", "id": "btn_1", ...}]
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[])
+        
+        for ch in choices:
+            # Важно: callback_data имеет лимит 64 байта.
+            # Мы используем ch['id'], так как это внутренний ID кнопки.
+            btn = types.InlineKeyboardButton(text=ch["label"], callback_data=str(ch["id"]))
+            kb.inline_keyboard.append([btn])
+        
+        try:
+            await self.bot.send_message(chat_id=user_id, text=prompt, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Error sending choice to {user_id}: {e}")
+
+        return None
+
+    # --- Handlers (Events from Telegram) ---
+
+    async def cmd_start(self, message: types.Message):
+        """Обработка /start — начало новой сессии"""
         user_id = message.from_user.id
-        init_meta = {
+        logger.info(f"User {user_id} started dialog")
+        
+        meta = {
             "username": message.from_user.username or "",
             "first_name": message.from_user.first_name or "",
             "user_id": user_id
         }
-        # Передаём управление интерпретатору (не блокируем хендлер)
-        logger.info(f"/start от {user_id}")
+        
+        # Запускаем диалог с нуля
         if self.interpreter:
-            await self.interpreter.start_dialog(user_id, init_meta)
-        else:
-            await message.answer("Система не инициализирована.")
+            await self.interpreter.start_dialog(user_id, meta)
 
-    # async def _handle_user_message(self, message: Message):
-    #     user_id = message.from_user.id
-    #     text = message.text or ""
-
-    #     # 1) Если ожидаем текст через Future → resolve
-    #     future = self._pending_text.pop(user_id, None)
-    #     if future:
-    #         if not future.done():
-    #             future.set_result(text)
-    #         return
-
-    #     # 2) Проверяем состояние интерпретатора
-    #     if self.interpreter:
-    #         session = self.interpreter.load_state(user_id)
-
-    #         # Если сессия активна и step==1 → это ожидаемый ввод для getMessage
-    #         if session and session.get("active", False) and session.get("step", 0) == 1:
-    #             await self.interpreter.resume_dialog(user_id, text)
-    #             return
-
-    #     # 3) Иначе подсказываем пользователю
-    #     await message.answer("Напишите /start чтобы начать")
-
-    async def _handle_user_message(self, message: Message):
+    async def handle_text(self, message: types.Message):
+        """Обработка обычного текста"""
         user_id = message.from_user.id
         text = message.text
+        
+        # Передаем текст в интерпретатор как input_data
+        if self.interpreter:
+            await self.interpreter.resume_dialog(user_id, text)
 
-        if text == "/start":
-            # проверяем, есть ли активная сессия
-            session = self.interpreter.load_state(user_id)
-            if session and session.get("active", False):
-                # продолжаем текущую сессию
-                await message.answer("Сессия уже активна. Продолжаем диалог...")
-                await self.interpreter._process_blocks(user_id)
-            else:
-                # создаём новую сессию
-                await self.interpreter.start_new_session(user_id)
-                await self.interpreter._process_blocks(user_id)
-            return
-
-        # загрузка состояния пользователя
-        session = self.interpreter.load_state(user_id)
-        if not session or not session.get("active", False):
-            # сессии нет или она неактивна → просим начать с /start
-            await message.answer("Напишите /start чтобы начать")
-            return
-
-        # продолжаем диалог с пользователем
-        await self.interpreter.resume_dialog(user_id, text)
-
-
-
-    async def _handle_callback_query(self, callback: CallbackQuery):
+    async def handle_callback(self, callback: types.CallbackQuery):
+        """
+        Обработка нажатия на кнопку.
+        Сюда прилетает то, что мы положили в callback_data (id опции).
+        """
         user_id = callback.from_user.id
-
-        # загрузка состояния
-        session = self.interpreter.load_state(user_id)
-        if not session or not session.get("active", False):
-            await callback.answer("Сессия не активна. Напишите /start")
-            return
-
-        # продолжаем диалог
-        await self.interpreter.resume_dialog(user_id, callback.data)
+        data = callback.data # Это ID кнопки
+        
+        # Обязательно отвечаем телеграму, чтобы убрать часики с кнопки
         await callback.answer()
-
-
-    # -------------------------
-    # API для интерпретатора
-    # -------------------------
-    async def send_message(self, user_id: int, text: str):
-        await self.bot.send_message(chat_id=user_id, text=text)
-
-    async def get_message(self, user_id: int, prompt: Optional[str] = None) -> str:
-        """
-        Отправляет prompt (если задан) и ожидает текстовое сообщение от user_id.
-        Возвращает текст.
-        """
-        if prompt:
-            await self.send_message(user_id, prompt)
-
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        self._pending_text[user_id] = fut
-        result = await fut
-        return result
-
-    async def get_choice(self, user_id: int, text: str, choices: List[Dict[str, Any]]) -> str:
-        """
-        Отправляет inline-клавиатуру. choices = [{"text": "...", "value": "opt_id"}, ...]
-        Возвращает значение value (callback_data) выбранной кнопки.
-        """
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-        for ch in choices:
-            btn = InlineKeyboardButton(text=ch["text"], callback_data=ch["value"])
-            keyboard.inline_keyboard.append([btn])
-
-        await self.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard)
-
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        self._pending_choice[user_id] = fut
-        result = await fut
-        return result
-
-    # -------------------------
-    # запуск polling
-    # -------------------------
-    async def run(self):
-        logger.info("Запуск Telegram polling...")
-        await self.dp.start_polling(self.bot)
+        
+        # Передаем ID кнопки в интерпретатор
+        if self.interpreter:
+            # Можно опционально удалить кнопки после нажатия, чтобы юзер не кликал дважды:
+            # await callback.message.edit_reply_markup(reply_markup=None)
+            
+            await self.interpreter.resume_dialog(user_id, data)

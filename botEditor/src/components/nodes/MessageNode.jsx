@@ -1,7 +1,7 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
+import PropTypes from "prop-types";
 
-// TODO: добавить проверку типов
 export default function MessageNode({ data }) {
   return (
     <div className="node message">
@@ -12,3 +12,10 @@ export default function MessageNode({ data }) {
     </div>
   );
 }
+
+MessageNode.propTypes = {
+  data: PropTypes.shape({
+    label: PropTypes.string,
+    text: PropTypes.oneOfType([PropTypes.string, PropTypes.node]),
+  }).isRequired,
+};

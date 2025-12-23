@@ -1,6 +1,6 @@
 import { Handle, Position } from "reactflow";
 import { renderTextWithVariables } from "../../utils/scenarioUtils";
-// TODO: добавить проверку типов
+import PropTypes from "prop-types";
 
 export default function ConditionNode({ data }) {
   return (
@@ -27,3 +27,9 @@ export default function ConditionNode({ data }) {
     </div>
   );
 }
+ConditionNode.propTypes = {
+  data: PropTypes.shape({
+    label: PropTypes.string,
+    expression: PropTypes.string,
+  }).isRequired,
+};

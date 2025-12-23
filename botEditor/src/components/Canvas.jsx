@@ -6,10 +6,9 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { createDefaultDataForType } from "../utils/scenarioUtils";
+import PropTypes from "prop-types";
 
-
-// TODO: добавить проверку типов
-function Canvas({
+export default function Canvas({
   nodes,
   edges,
   nodeTypes,
@@ -137,4 +136,21 @@ function Canvas({
   );
 }
 
-export default Canvas;
+Canvas.propTypes = {
+  nodes: PropTypes.array.isRequired,
+  edges: PropTypes.array.isRequired,
+  nodeTypes: PropTypes.object.isRequired,
+  onNodesChange: PropTypes.func.isRequired,
+  onEdgesChange: PropTypes.func.isRequired,
+  onConnect: PropTypes.func.isRequired,
+  onNodeClick: PropTypes.func.isRequired,
+  onNodeContextMenu: PropTypes.func.isRequired,
+  onEdgeContextMenu: PropTypes.func.isRequired,
+  onEdgeDoubleClick: PropTypes.func.isRequired,
+  onNodesDelete: PropTypes.func.isRequired,
+  onEdgesDelete: PropTypes.func.isRequired,
+  setNodes: PropTypes.func.isRequired,
+  setEdges: PropTypes.func.isRequired,
+  editingEdgeId: PropTypes.string,
+  setEditingEdgeId: PropTypes.func.isRequired,
+};

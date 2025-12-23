@@ -1,17 +1,16 @@
-import React, { useState, useRef } from "react";
-// TODO: добавить проверку типов
-// TODO: стилизовать под остальной интерфейс
-// TODO: добавить подтверждение при удалении бота
-// TODO: добавить поиск по списку ботов
-// TODO: уйти с локального состояния на управление ботами через глобальный стейт или контекст
-// TODO: добавить кнопку импрорта/экспорта ботов
-// TODO: добавить складывание ботов вместо локального хранилища в бд
+import React, { useState } from "react";
+import PropTypes from "prop-types";
+import "./../styles/botsManager.css";
 
-export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
+export default function BotsManager({
+  bots,
+  loading = false,
+  onSelectBot,
+  onNewBot,
+  onDeleteBot,
+}) {
   const [newBotName, setNewBotName] = useState("");
   const [search, setSearch] = useState("");
-
-  const fileInputRef = useRef(null);
 
   const handleCreate = () => {
     const name = newBotName.trim();
@@ -21,9 +20,7 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
   };
 
   const handleDelete = (botId) => {
-    const ok = window.confirm("Удалить бота и его bot_model из списка?");
-    if (!ok) return;
-    setBots((bs) => bs.filter((b) => b.id !== botId));
+    onDeleteBot(botId);
   };
 
   const handleExportBot = (bot) => {
@@ -40,48 +37,6 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-
-        const mkBot = (scenarioLike, idx) => {
-          const scenario = scenarioLike.scenario || scenarioLike;
-          const baseName =
-            scenario.BotName ||
-            scenarioLike.name ||
-            `Импортированный бот ${idx + 1}`;
-          const id = crypto.randomUUID();
-          return { id, name: baseName, scenario };
-        };
-
-        let importedBots = [];
-        if (Array.isArray(parsed)) {
-          importedBots = parsed.map((item, idx) => mkBot(item, idx));
-        } else {
-          importedBots = [mkBot(parsed, 0)];
-        }
-
-        setBots((prev) => [...prev, ...importedBots]);
-        alert("Бот(ы) успешно импортированы.");
-      } catch (e) {
-        alert("Ошибка импорта: " + e.message);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = "";
-  };
-
   const normalizedSearch = search.trim().toLowerCase();
   const visibleBots =
     normalizedSearch === ""
@@ -91,101 +46,102 @@ export default function BotsManager({ bots, setBots, onSelectBot, onNewBot }) {
         );
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Управление ботами</h2>
-
-      {/* Создание бота и импорт */}
-      <div style={{ marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Название нового бота"
-          value={newBotName}
-          onChange={(e) => setNewBotName(e.target.value)}
-          style={{
-            padding: 6,
-            borderRadius: 4,
-            border: "1px solid #ccc",
-          }}
-        />
-        <button
-          onClick={handleCreate}
-          style={{ marginLeft: 8, padding: "6px 12px" }}
-        >
-          Создать
-        </button>
-        <button
-          onClick={handleImportClick}
-          style={{ marginLeft: 8, padding: "6px 12px" }}
-        >
-          Импортировать бота
-        </button>
-        <input
-          type="file"
-          accept="application/json"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          style={{ display: "none" }}
-        />
+    <div className="bots-manager">
+      <div className="bots-manager-header">
+        <h2 className="bots-manager-title">Мои боты</h2>
+        <p className="bots-manager-subtitle">
+          Управляйте сохранёнными сценариями, создавайте новые и экспортируйте их.
+        </p>
       </div>
 
-      {/* Поиск по имени бота */}
-      <div style={{ marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Поиск бота по имени"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            padding: 6,
-            borderRadius: 4,
-            border: "1px solid #ccc",
-            width: 260,
-          }}
-        />
+      <div className="bots-manager-toolbar">
+        <div className="bots-manager-new">
+          <input
+            type="text"
+            placeholder="Название нового бота"
+            value={newBotName}
+            onChange={(e) => setNewBotName(e.target.value)}
+            className="bots-input"
+          />
+          <button
+            onClick={handleCreate}
+            className="bots-button bots-button-primary"
+          >
+            Создать
+          </button>
+        </div>
+
+        <div className="bots-manager-search">
+          <input
+            type="text"
+            placeholder="Поиск бота по имени"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bots-input bots-input-search"
+          />
+        </div>
       </div>
 
-      {visibleBots.length === 0 ? (
-        <p>Боты ещё не созданы или ничего не найдено.</p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {visibleBots.map((bot) => (
-            <li
-              key={bot.id}
-              style={{
-                marginBottom: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <strong>{bot.name}</strong>
-                <div style={{ fontSize: 12, color: "#555" }}>ID: {bot.id}</div>
-              </div>
-              <div style={{ marginLeft: 40 }}>
-                <button
-                  onClick={() => onSelectBot(bot)}
-                  style={{ marginRight: 8, padding: "6px 10px" }}
-                >
-                  Открыть
-                </button>
-                <button
-                  onClick={() => handleExportBot(bot)}
-                  style={{ marginRight: 8, padding: "6px 10px" }}
-                >
-                  Экспорт
-                </button>
-                <button
-                  onClick={() => handleDelete(bot.id)}
-                  style={{ padding: "6px 10px" }}
-                >
-                  Удалить
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="bots-manager-content">
+        {loading ? (
+          <div className="bots-empty bots-empty-muted">
+            Загружаем список ботов...
+          </div>
+        ) : visibleBots.length === 0 ? (
+          <div className="bots-empty">
+            <div className="bots-empty-title">
+              Боты ещё не созданы или ничего не найдено.
+            </div>
+            <div className="bots-empty-text">
+              Попробуйте изменить условия поиска или создайте нового бота.
+            </div>
+          </div>
+        ) : (
+          <ul className="bots-list">
+            {visibleBots.map((bot) => (
+              <li key={bot.id} className="bots-item">
+                <div className="bots-item-main">
+                  <div className="bots-item-name">{bot.name}</div>
+                  <div className="bots-item-meta">ID: {bot.id}</div>
+                  {bot.scenario?.BotName && (
+                    <div className="bots-item-meta bots-item-meta-light">
+                      В сценарии: {bot.scenario.BotName}
+                    </div>
+                  )}
+                </div>
+                <div className="bots-item-actions">
+                  <button
+                    onClick={() => onSelectBot(bot)}
+                    className="bots-button bots-button-primary"
+                  >
+                    Открыть
+                  </button>
+                  <button
+                    onClick={() => handleExportBot(bot)}
+                    className="bots-button bots-button-secondary"
+                  >
+                    Экспорт
+                  </button>
+                  <button
+                    onClick={() => handleDelete(bot.id)}
+                    className="bots-button bots-button-danger"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
+
+BotsManager.propTypes = {
+  bots: PropTypes.array.isRequired,
+  loading: PropTypes.bool,
+  onSelectBot: PropTypes.func.isRequired,
+  onNewBot: PropTypes.func.isRequired,
+  onDeleteBot: PropTypes.func.isRequired,
+};

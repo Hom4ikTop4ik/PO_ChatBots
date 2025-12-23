@@ -1,5 +1,4 @@
-// TODO: добавить проверку типов
-
+import PropTypes from 'prop-types';
 export default function InputInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
@@ -48,3 +47,10 @@ export default function InputInspector({ node, updateNodeData }) {
     </div>
   );
 }
+InputInspector.propTypes = {
+  node: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    data: PropTypes.object.isRequired,
+  }).isRequired,
+  updateNodeData: PropTypes.func.isRequired,
+};

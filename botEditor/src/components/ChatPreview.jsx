@@ -261,9 +261,3 @@ export default function ChatPreview({ nodes, edges, open: propOpen }) {
     </div>
   );
 }
-
-ChatPreview.propTypes = {
-  nodes: PropTypes.arrayOf(PropTypes.object).isRequired,
-  edges: PropTypes.arrayOf(PropTypes.object).isRequired,
-  globalVariables: PropTypes.arrayOf(PropTypes.string),
-};

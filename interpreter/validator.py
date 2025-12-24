@@ -57,10 +57,10 @@ class BotConfigParser:
         }
         
         # Допустимые типы для глобальных переменных
-        self._allowed_variable_types = {"string", "number", "boolean"}
+        self._allowed_variable_types = {"string", "number", "boolean", "date"}
         
         # Допустимые типы для блока getMessage
-        self._allowed_input_types = {"string", "number", "boolean"}
+        self._allowed_input_types = {"string", "number", "boolean", "date"}
     
     def parse_bot_config_from_file(self, file_path: str) -> Dict[str, Any]:
         """
@@ -537,6 +537,9 @@ class BotConfigParser:
         elif var_type == "boolean":
             if not isinstance(value, bool):
                 raise ValidationError(f"Значение должно быть булевым", field_path)
+        elif var_type == "date":
+            if not isinstance(value, str):
+                raise ValidationError(f"Значение должно быть датой", field_path)
     
     def register_block_type(self, block_type: str, param_parser: Callable, connection_validator: Callable):
         """Регистрация нового типа блока для расширения функциональности"""

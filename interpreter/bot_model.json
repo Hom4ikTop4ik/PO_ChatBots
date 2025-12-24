@@ -1,87 +1,206 @@
 {
   "BotName": "Bot",
-  "Start": "fdff8279-637e-41c7-878a-1154f26582fe",
-  "Final": "6f1daf11-ac34-4d38-9235-2d96b6b77896",
+  "Token": "",
+  "Start": "f62c3605-e705-4f39-8f76-aa851ca139b4",
+  "Final": "286cc2a1-61a8-4e97-bee1-8b7379ca79ae",
   "Blocks": [
     {
       "BlockName": "Старт",
-      "Block_id": "fdff8279-637e-41c7-878a-1154f26582fe",
+      "Block_id": "f62c3605-e705-4f39-8f76-aa851ca139b4",
       "Type": "start",
-      "X": 470,
-      "Y": 157,
+      "X": 459,
+      "Y": -56,
       "Params": {},
       "Connections": {
         "In": [],
         "Out": [
-          "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc"
+          "c9e622a5-f874-4c38-81c7-49d9bf418ca7"
         ]
       }
     },
     {
-      "BlockName": "Сообщение",
-      "Block_id": "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc",
+      "BlockName": "Приветствие",
+      "Block_id": "c9e622a5-f874-4c38-81c7-49d9bf418ca7",
       "Type": "sendMessage",
-      "X": 435,
-      "Y": 309,
+      "X": 222,
+      "Y": 34,
       "Params": {
-        "message": "1) Текст сообщения ${var1}"
+        "message": "Привет! Я виртуальный помощник клиники «Здоровье». Помогу вам записаться на прием к врачу."
       },
       "Connections": {
         "In": [
-          "fdff8279-637e-41c7-878a-1154f26582fe"
+          "f62c3605-e705-4f39-8f76-aa851ca139b4"
         ],
         "Out": [
-          "a2cdd6db-bcbe-467a-8f5c-99929b579cbc"
+          "ab162918-a880-44b3-821f-1e09072796d6"
         ]
       }
     },
     {
-      "BlockName": "Ввод",
-      "Block_id": "a2cdd6db-bcbe-467a-8f5c-99929b579cbc",
+      "BlockName": "Ввод имени",
+      "Block_id": "ab162918-a880-44b3-821f-1e09072796d6",
       "Type": "getMessage",
-      "X": 378,
-      "Y": 421,
+      "X": 407,
+      "Y": 134,
       "Params": {
-        "message": "2) Введите значение",
-        "var": "var1",
+        "message": "Как вас зовут:",
+        "var": "pacient_name",
         "type": "string"
       },
       "Connections": {
         "In": [
-          "0cd8a7cf-ce14-4ffc-9b6b-c453184bd1bc"
+          "c9e622a5-f874-4c38-81c7-49d9bf418ca7"
         ],
         "Out": [
-          "7cc61cc4-1076-4c3c-8b7e-16e465865370"
+          "a183925e-97d3-442a-9770-aa084898ce55"
         ]
       }
     },
     {
       "BlockName": "Сообщение",
-      "Block_id": "7cc61cc4-1076-4c3c-8b7e-16e465865370",
+      "Block_id": "a183925e-97d3-442a-9770-aa084898ce55",
       "Type": "sendMessage",
-      "X": 406,
-      "Y": 601,
+      "X": 348,
+      "Y": 279,
       "Params": {
-        "message": "3) Текст сообщения ${var1}. Ещё: ${var1}. И снова: ${var1}!"
+        "message": " Приятно познакомиться, ${pacient_name}!"
       },
       "Connections": {
         "In": [
-          "a2cdd6db-bcbe-467a-8f5c-99929b579cbc"
+          "ab162918-a880-44b3-821f-1e09072796d6"
         ],
         "Out": [
-          "1a9a876b-c91e-452d-b140-665fc443944d"
+          "9624aa3e-fccf-4546-9740-b079c90a774d"
         ]
       }
     },
     {
-      "BlockName": "Варианты",
-      "Block_id": "1a9a876b-c91e-452d-b140-665fc443944d",
-      "Type": "choice",
-      "X": 406,
-      "Y": 723,
+      "BlockName": "Дата рождения",
+      "Block_id": "9624aa3e-fccf-4546-9740-b079c90a774d",
+      "Type": "getMessage",
+      "X": 393,
+      "Y": 371,
       "Params": {
-        "var": "choice1",
-        "prompt": "4) Выберите вариант",
+        "message": "Укажите, пожалуйста, вашу дату рождения в формате ДД.ММ.ГГГГ (например, 15.05.1985).",
+        "var": "birthday",
+        "type": "date"
+      },
+      "Connections": {
+        "In": [
+          "a183925e-97d3-442a-9770-aa084898ce55"
+        ],
+        "Out": [
+          "1dd3b1be-943c-49c2-8665-6f9bc7729050"
+        ]
+      }
+    },
+    {
+      "BlockName": "Тип приёма",
+      "Block_id": "1dd3b1be-943c-49c2-8665-6f9bc7729050",
+      "Type": "getMessage",
+      "X": 391,
+      "Y": 615,
+      "Params": {
+        "message": "Теперь выберите тип приема: 1) Первичный прием  2) Повторный прием  3) Консультация  4) Диспансерный осмотр",
+        "var": "priem_type",
+        "type": "number"
+      },
+      "Connections": {
+        "In": [
+          "9624aa3e-fccf-4546-9740-b079c90a774d"
+        ],
+        "Out": [
+          "d77375bf-6688-4412-9a32-56a4aba75c38"
+        ]
+      }
+    },
+    {
+      "BlockName": "Выбор специалиста",
+      "Block_id": "d77375bf-6688-4412-9a32-56a4aba75c38",
+      "Type": "getMessage",
+      "X": 389,
+      "Y": 873,
+      "Params": {
+        "message": "Выберите нужного специалиста:  1) Терапевт  2) Кардиолог  3) Невролог  4) Офтальмолог 5) Педиатр",
+        "var": "doctor_type",
+        "type": "number"
+      },
+      "Connections": {
+        "In": [
+          "1dd3b1be-943c-49c2-8665-6f9bc7729050"
+        ],
+        "Out": [
+          "c217bf1f-f9d7-4420-8be3-31b496ddcd59"
+        ]
+      }
+    },
+    {
+      "BlockName": "Дата посещения",
+      "Block_id": "c217bf1f-f9d7-4420-8be3-31b496ddcd59",
+      "Type": "getMessage",
+      "X": 390,
+      "Y": 1140,
+      "Params": {
+        "message": "Укажите желаемую дату приема в формате ДД.ММ.ГГГГ (например, 20.10.2023).",
+        "var": "doctor_date",
+        "type": "date"
+      },
+      "Connections": {
+        "In": [
+          "d77375bf-6688-4412-9a32-56a4aba75c38"
+        ],
+        "Out": [
+          "0ef2db9e-49b6-43c0-be66-5d9a9b82fb9b"
+        ]
+      }
+    },
+    {
+      "BlockName": "Fine",
+      "Block_id": "0ef2db9e-49b6-43c0-be66-5d9a9b82fb9b",
+      "Type": "sendMessage",
+      "X": 199,
+      "Y": 1389,
+      "Params": {
+        "message": "Отлично! ${pacient_name} вы выбрали ${priem_type} у ${doctor_type} ${doctor_date}."
+      },
+      "Connections": {
+        "In": [
+          "c217bf1f-f9d7-4420-8be3-31b496ddcd59"
+        ],
+        "Out": [
+          "cf72309a-1faa-4d0a-aea4-f93bebfcff98"
+        ]
+      }
+    },
+    {
+      "BlockName": "Телефон",
+      "Block_id": "cf72309a-1faa-4d0a-aea4-f93bebfcff98",
+      "Type": "getMessage",
+      "X": 289,
+      "Y": 1500,
+      "Params": {
+        "message": "Пожалуйста, укажите ваш номер телефона для подтверждения записи и связи.",
+        "var": "phone_number",
+        "type": "string"
+      },
+      "Connections": {
+        "In": [
+          "0ef2db9e-49b6-43c0-be66-5d9a9b82fb9b"
+        ],
+        "Out": [
+          "67826de7-f27c-4d72-b33f-e6bbb78fda6a"
+        ]
+      }
+    },
+    {
+      "BlockName": "Подтверди телефон",
+      "Block_id": "67826de7-f27c-4d72-b33f-e6bbb78fda6a",
+      "Type": "choice",
+      "X": 216,
+      "Y": 1704,
+      "Params": {
+        "var": "phone_confirm",
+        "prompt": "Ваш номер: ${phone_number}. Все верно? (Да/Нет)",
         "options": [
           {
             "id": "opt1",
@@ -97,61 +216,74 @@
       },
       "Connections": {
         "In": [
-          "7cc61cc4-1076-4c3c-8b7e-16e465865370"
+          "cf72309a-1faa-4d0a-aea4-f93bebfcff98"
         ],
         "Out": [
-          "df5aedf6-7900-4f9f-9fa1-577e4539068f",
-          "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c"
+          "2d4f0fea-e5f0-4127-a401-7083c512250b",
+          "412b16ba-d96c-4b44-9b25-a098f6a023bf"
         ]
       }
     },
     {
       "BlockName": "Сообщение",
-      "Block_id": "df5aedf6-7900-4f9f-9fa1-577e4539068f",
+      "Block_id": "412b16ba-d96c-4b44-9b25-a098f6a023bf",
       "Type": "sendMessage",
-      "X": 305,
-      "Y": 866,
+      "X": -405,
+      "Y": 1840,
       "Params": {
-        "message": "4.1) Да. Текст сообщения"
+        "message": "Отлично! ${pacient_name} вы записаны на ${priem_type} у ${doctor_type} ${doctor_date}. В ближайшие сутки с вами свяжется администратор по указаному номеру ${phone_number} для окончательного подтверждения.\nНомер вашей заявки: ${order_number}"
       },
       "Connections": {
         "In": [
-          "1a9a876b-c91e-452d-b140-665fc443944d"
+          "67826de7-f27c-4d72-b33f-e6bbb78fda6a"
         ],
         "Out": [
-          "6f1daf11-ac34-4d38-9235-2d96b6b77896"
+          "4a972354-f0f6-4005-b82d-6a2ca2ccab9d"
         ]
       }
     },
     {
-      "BlockName": "Сообщение",
-      "Block_id": "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c",
+      "BlockName": "Сброс записи",
+      "Block_id": "2d4f0fea-e5f0-4127-a401-7083c512250b",
       "Type": "sendMessage",
-      "X": 479,
-      "Y": 861,
+      "X": 643,
+      "Y": 1696,
       "Params": {
-        "message": "4.2) Нет. Текст сообщения"
+        "message": "Повторите запись начав с команды /start."
       },
       "Connections": {
         "In": [
-          "1a9a876b-c91e-452d-b140-665fc443944d"
+          "67826de7-f27c-4d72-b33f-e6bbb78fda6a"
         ],
         "Out": [
-          "6f1daf11-ac34-4d38-9235-2d96b6b77896"
+          "286cc2a1-61a8-4e97-bee1-8b7379ca79ae"
         ]
       }
     },
     {
       "BlockName": "Финал",
-      "Block_id": "6f1daf11-ac34-4d38-9235-2d96b6b77896",
+      "Block_id": "286cc2a1-61a8-4e97-bee1-8b7379ca79ae",
       "Type": "final",
-      "X": 481,
-      "Y": 1016,
+      "X": 732,
+      "Y": 1780,
       "Params": {},
       "Connections": {
         "In": [
-          "df5aedf6-7900-4f9f-9fa1-577e4539068f",
-          "832dcb25-cac5-4c5e-b5e9-89b58da4ef7c"
+          "2d4f0fea-e5f0-4127-a401-7083c512250b"
+        ],
+        "Out": []
+      }
+    },
+    {
+      "BlockName": "Финал",
+      "Block_id": "4a972354-f0f6-4005-b82d-6a2ca2ccab9d",
+      "Type": "final",
+      "X": 277,
+      "Y": 1945,
+      "Params": {},
+      "Connections": {
+        "In": [
+          "412b16ba-d96c-4b44-9b25-a098f6a023bf"
         ],
         "Out": []
       }

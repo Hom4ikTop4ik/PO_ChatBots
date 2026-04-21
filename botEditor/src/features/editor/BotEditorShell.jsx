@@ -6,9 +6,8 @@ import React, {
 } from "react";
 import {
   ReactFlowProvider,
-  useNodesState,
-  useEdgesState,
-  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
@@ -44,6 +43,15 @@ import {
   updateBotApi,
   deleteBotApi,
 } from "../../api/botsApi";
+import {
+  applyOperation,
+  createBlockDeleteOp,
+  createBlockMoveOp,
+  createBlockUpdateOp,
+  createEdgeAddOp,
+  createEdgeDeleteOp,
+  createScenarioReplaceOp,
+} from "./operations";
 
 const nodeTypes = {
   start: StartNode,
@@ -55,22 +63,16 @@ const nodeTypes = {
   api: ApiNode,
 };
 
-/**
- * Основная оболочка редактора бота.
- * Отвечает за:
- *  - загрузку и сохранение ботов через backend API
- *  - состояние React Flow (узлы, рёбра)
- *  - вызов валидатора конфигурации
- *  - отображение сайдбара, канваса, инспекторов и превью-чата
- * Компонент конечно сильно большой, но пока что я не вижу смысла его дробить дальше.
- */
+const INITIAL_EDITOR_STATE = {
+  nodes: [],
+  edges: [],
+};
+
 export default function BotEditorShell() {
   const { user, logout } = useAuth();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [editorState, setEditorState] = useState(INITIAL_EDITOR_STATE);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-
   const [showInspectorModal, setShowInspectorModal] = useState(false);
 
   const [botName, setBotName] = useState("Bot");
@@ -84,31 +86,161 @@ export default function BotEditorShell() {
   const [bots, setBots] = useState([]);
   const [loadingBots, setLoadingBots] = useState(false);
 
-  const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
+  const [scenarioVersion, setScenarioVersion] = useState(0);
+  const [operationLog, setOperationLog] = useState([]);
+
+  const fileInputRef = useRef(null);
+  const editorStateRef = useRef(INITIAL_EDITOR_STATE);
+  const scenarioVersionRef = useRef(0);
+
+  const nodes = editorState.nodes;
+  const edges = editorState.edges;
+
+  useEffect(() => {
+    editorStateRef.current = editorState;
+  }, [editorState]);
+
+  useEffect(() => {
+    scenarioVersionRef.current = scenarioVersion;
+  }, [scenarioVersion]);
+
+  useEffect(() => {
+    window.__BOT_EDITOR_DEBUG__ = {
+      get editorState() {
+        return editorStateRef.current;
+      },
+      get scenarioVersion() {
+        return scenarioVersionRef.current;
+      },
+      get operationLog() {
+        return operationLog;
+      },
+    };
+  }, [operationLog]);
+
+  const getCurrentVersion = useCallback(() => scenarioVersionRef.current, []);
+
+  const resetOperationState = useCallback(() => {
+    setScenarioVersion(0);
+    setOperationLog([]);
+    scenarioVersionRef.current = 0;
+  }, []);
+
+  const replaceEditorState = useCallback(
+    (nextState, { resetHistory = false } = {}) => {
+      setEditorState(nextState);
+      editorStateRef.current = nextState;
+
+      if (resetHistory) {
+        resetOperationState();
+      }
+    },
+    [resetOperationState]
   );
+
+  const dispatchOperation = useCallback((operation) => {
+    setEditorState((prev) => {
+      const next = applyOperation(prev, operation);
+      editorStateRef.current = next;
+      return next;
+    });
+
+    setScenarioVersion((prev) => {
+      const next = prev + 1;
+      scenarioVersionRef.current = next;
+      return next;
+    });
+
+    setOperationLog((prev) => {
+      const entry = {
+        ...operation,
+        applied_version: scenarioVersionRef.current + 1,
+      };
+      const next = [...prev, entry];
+      return next.slice(-200);
+    });
+  }, []);
+
+  const onConnect = useCallback(
+    (params) => {
+      dispatchOperation(createEdgeAddOp(params, getCurrentVersion()));
+    },
+    [dispatchOperation, getCurrentVersion]
+  );
+
+  const onNodesChange = useCallback(
+    (changes) => {
+      const nonRemoveChanges = changes.filter((change) => change.type !== "remove");
+      if (nonRemoveChanges.length === 0) return;
+
+      const moveOperations = nonRemoveChanges
+        .filter((change) => change.type === "position" && change.dragging === false)
+        .map((change) => {
+          const currentNode = editorStateRef.current.nodes.find((n) => n.id === change.id);
+          const safePosition = change.position || currentNode?.position;
+
+          return createBlockMoveOp(
+            change.id,
+            safePosition,
+            getCurrentVersion()
+          );
+        })
+        .filter(Boolean);
+
+      const directChanges = nonRemoveChanges.filter(
+        (change) => !(change.type === "position" && change.dragging === false)
+      );
+
+      if (directChanges.length > 0) {
+        setEditorState((prev) => {
+          const next = {
+            ...prev,
+            nodes: applyNodeChanges(directChanges, prev.nodes),
+          };
+          editorStateRef.current = next;
+          return next;
+        });
+      }
+
+      moveOperations.forEach((operation) => dispatchOperation(operation));
+    },
+    [dispatchOperation, getCurrentVersion]
+  );
+
+  const onEdgesChange = useCallback((changes) => {
+    const nonRemoveChanges = changes.filter((change) => change.type !== "remove");
+    if (nonRemoveChanges.length === 0) return;
+
+    setEditorState((prev) => {
+      const next = {
+        ...prev,
+        edges: applyEdgeChanges(nonRemoveChanges, prev.edges),
+      };
+      editorStateRef.current = next;
+      return next;
+    });
+  }, []);
 
   const onNodesDelete = useCallback(
     (deleted) => {
-      setNodes((nds) => nds.filter((n) => !deleted.some((d) => d.id === n.id)));
-      setEdges((eds) =>
-        eds.filter(
-          (e) => !deleted.some((d) => e.source === d.id || e.target === d.id)
-        )
-      );
+      deleted.forEach((node) => {
+        dispatchOperation(createBlockDeleteOp(node.id, getCurrentVersion()));
+      });
+
       setSelectedNodeId((sel) =>
-        deleted.some((d) => d.id === sel) ? null : sel
+        deleted.some((node) => node.id === sel) ? null : sel
       );
     },
-    [setNodes, setEdges]
+    [dispatchOperation, getCurrentVersion]
   );
 
   const onEdgesDelete = useCallback(
     (deleted) => {
-      setEdges((eds) => eds.filter((e) => !deleted.some((d) => d.id === e.id)));
+      deleted.forEach((edge) => {
+        dispatchOperation(createEdgeDeleteOp(edge.id, getCurrentVersion()));
+      });
     },
-    [setEdges]
+    [dispatchOperation, getCurrentVersion]
   );
 
   const onNodeContextMenu = useCallback((event, node) => {
@@ -122,10 +254,10 @@ export default function BotEditorShell() {
       event.preventDefault();
       const ok = globalThis.confirm("Удалить соединение?");
       if (ok) {
-        setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+        dispatchOperation(createEdgeDeleteOp(edge.id, getCurrentVersion()));
       }
     },
-    [setEdges]
+    [dispatchOperation, getCurrentVersion]
   );
 
   const onEdgeDoubleClick = useCallback((event, edge) => {
@@ -143,36 +275,37 @@ export default function BotEditorShell() {
 
   const deleteSelectedNode = useCallback(() => {
     if (!selectedNodeId) return;
+
     const ok = globalThis.confirm("Удалить блок и все его соединения?");
     if (!ok) return;
-    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
-    setEdges((eds) =>
-      eds.filter(
-        (e) => e.source !== selectedNodeId && e.target !== selectedNodeId
-      )
-    );
+
+    dispatchOperation(createBlockDeleteOp(selectedNodeId, getCurrentVersion()));
     setSelectedNodeId(null);
     setShowInspectorModal(false);
-  }, [selectedNodeId, setNodes, setEdges]);
+  }, [selectedNodeId, dispatchOperation, getCurrentVersion]);
 
   const extractUsedVariables = useCallback(() => {
     const vars = new Set();
+
     if (globalVariables) {
       globalVariables.split("\n").forEach((v) => {
         const trimmed = v.trim();
         if (trimmed) vars.add(trimmed);
       });
     }
+
     nodes.forEach((node) => {
       if (node.type === "input" && node.data.variableName) {
         vars.add(node.data.variableName);
       }
     });
+
     return Array.from(vars).sort();
   }, [nodes, globalVariables]);
 
   useEffect(() => {
     setLoadingBots(true);
+
     fetchBotsApi()
       .then((data) => {
         if (Array.isArray(data)) {
@@ -201,6 +334,7 @@ export default function BotEditorShell() {
       edges,
       scenario.GlobalVariables
     );
+
     if (!valid) {
       alert("Ошибки в конфигурации:\n" + errors.join("\n"));
       return;
@@ -219,6 +353,7 @@ export default function BotEditorShell() {
           name,
           scenario,
         });
+
         setBots((prev) =>
           prev.map((b) => (b.id === existing.id ? updated : b))
         );
@@ -226,6 +361,7 @@ export default function BotEditorShell() {
         const created = await createBotApi({ name, scenario });
         setBots((prev) => [...prev, created]);
       }
+
       alert("Бот сохранён.");
     } catch (e) {
       alert("Не удалось сохранить бота: " + e.message);
@@ -235,6 +371,7 @@ export default function BotEditorShell() {
   const handleValidate = () => {
     const vars = globalVariables.split("\n").filter((v) => v.trim());
     const { valid, errors } = validateScenario(nodes, edges, vars);
+
     if (valid) {
       alert("Конфигурация корректна");
     } else {
@@ -244,22 +381,30 @@ export default function BotEditorShell() {
 
   const handleSelectBot = (bot) => {
     const { nodes: newNodes, edges: newEdges } = fromScenario(bot.scenario);
-    setNodes(newNodes);
-    setEdges(newEdges);
+
+    replaceEditorState(
+      { nodes: newNodes, edges: newEdges },
+      { resetHistory: true }
+    );
+
     setSelectedNodeId(null);
     setBotName(bot.scenario.BotName || bot.name);
     setBotToken(bot.scenario.Token || "");
-    if (bot.scenario.GlobalVariables && Array.isArray(bot.scenario.GlobalVariables)) {
+
+    if (
+      bot.scenario.GlobalVariables &&
+      Array.isArray(bot.scenario.GlobalVariables)
+    ) {
       setGlobalVariables(bot.scenario.GlobalVariables.join("\n"));
     } else {
       setGlobalVariables("");
     }
+
     setView("editor");
   };
 
   const handleNewBot = (name) => {
-    setNodes([]);
-    setEdges([]);
+    replaceEditorState({ nodes: [], edges: [] }, { resetHistory: true });
     setSelectedNodeId(null);
     setBotName(name || "Bot");
     setBotToken("");
@@ -270,6 +415,7 @@ export default function BotEditorShell() {
   const handleDeleteBot = async (botId) => {
     const ok = globalThis.confirm("Удалить бота и его сценарий?");
     if (!ok) return;
+
     try {
       await deleteBotApi(botId);
       setBots((prev) => prev.filter((b) => b.id !== botId));
@@ -289,15 +435,14 @@ export default function BotEditorShell() {
     const blob = new Blob([JSON.stringify(scenario, null, 2)], {
       type: "application/json",
     });
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = scenario.BotName + "-bot-scenario.json";
+    a.download = `${scenario.BotName || "bot"}-bot-scenario.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const fileInputRef = useRef(null);
 
   const handleImportClick = () => {
     if (fileInputRef.current) {
@@ -308,48 +453,50 @@ export default function BotEditorShell() {
   const handleFileChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
+
     reader.onload = () => {
       try {
         const json = JSON.parse(reader.result);
         const { nodes: newNodes, edges: newEdges } = fromScenario(json);
-        setNodes(newNodes);
-        setEdges(newEdges);
+
+        dispatchOperation(
+          createScenarioReplaceOp(
+            { nodes: newNodes, edges: newEdges },
+            getCurrentVersion()
+          )
+        );
+
         setSelectedNodeId(null);
+
         if (json.BotName) setBotName(json.BotName);
         if (json.Token) setBotToken(json.Token);
+
         if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
           setGlobalVariables(json.GlobalVariables.join("\n"));
+        } else {
+          setGlobalVariables("");
         }
       } catch (e) {
         alert("Ошибка загрузки сценария: " + e.message);
       }
     };
+
     reader.readAsText(file);
     event.target.value = "";
   };
 
   const updateNodeData = (id, patch) => {
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id === id) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              ...patch,
-            },
-          };
-        }
-        return n;
-      })
-    );
+    dispatchOperation(createBlockUpdateOp(id, patch, getCurrentVersion()));
   };
 
   const renderInspector = () => {
     const node = nodes.find((n) => n.id === selectedNodeId);
     if (!node) return <div>Выберите блок для редактирования</div>;
+
     const usedVars = extractUsedVariables();
+
     switch (node.type) {
       case "message":
         return (
@@ -359,8 +506,10 @@ export default function BotEditorShell() {
             usedVars={usedVars}
           />
         );
+
       case "input":
         return <InputInspector node={node} updateNodeData={updateNodeData} />;
+
       case "condition":
         return (
           <ConditionInspector
@@ -369,6 +518,7 @@ export default function BotEditorShell() {
             usedVars={usedVars}
           />
         );
+
       case "choice":
         return (
           <ChoiceInspector
@@ -377,8 +527,10 @@ export default function BotEditorShell() {
             usedVars={usedVars}
           />
         );
+
       case "api":
         return <ApiInspector node={node} updateNodeData={updateNodeData} />;
+
       default:
         return <DefaultInspector />;
     }
@@ -402,13 +554,39 @@ export default function BotEditorShell() {
 
   return (
     <ReactFlowProvider>
-      <div className="app">
-        <div className="sidebar">
+      <div
+        className="app"
+        style={{
+          display: "flex",
+          width: "100vw",
+          height: "100vh",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        <div
+          className="sidebar"
+          style={{
+            width: 260,
+            minWidth: 260,
+            maxWidth: 260,
+            background: "#f7f7f7",
+            borderRight: "1px solid #ddd",
+            padding: 16,
+            boxSizing: "border-box",
+            overflowY: "auto",
+            overflowX: "hidden",
+            zIndex: 20,
+            position: "relative",
+          }}
+        >
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 12, color: "#777" }}>Пользователь</div>
-            <div style={{ fontWeight: 600 }}>{user?.email || "Неизвестно"}</div>
+            <div style={{ fontWeight: 600 }}>
+              {user?.email || "Неизвестно"}
+            </div>
             <button
-              style={{ marginTop: 8, background: "#d32f2f" }}
+              style={{ marginTop: 8, background: "#d32f2f", color: "#fff" }}
               onClick={logout}
             >
               Выйти
@@ -416,6 +594,7 @@ export default function BotEditorShell() {
           </div>
 
           <h3>Блоки</h3>
+
           {["start", "final", "message", "input", "condition", "choice", "api"].map(
             (t) => (
               <div
@@ -426,25 +605,61 @@ export default function BotEditorShell() {
                   e.dataTransfer.setData("application/reactflow", t);
                   e.dataTransfer.effectAllowed = "move";
                 }}
+                style={{
+                  padding: "10px 12px",
+                  marginBottom: 8,
+                  background: "#fff",
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  cursor: "grab",
+                  userSelect: "none",
+                }}
               >
                 {t}
               </div>
             )
           )}
-          <button onClick={handleImportClick}>Импорт</button>
-          <button onClick={handleExportScenario}>Экспорт</button>
-          <button onClick={() => setShowBotSettings(true)} className="mt8">
+
+          <button onClick={handleImportClick} style={{ width: "100%", marginTop: 8 }}>
+            Импорт
+          </button>
+
+          <button onClick={handleExportScenario} style={{ width: "100%", marginTop: 8 }}>
+            Экспорт
+          </button>
+
+          <button
+            onClick={() => setShowBotSettings(true)}
+            className="mt8"
+            style={{ width: "100%", marginTop: 8 }}
+          >
             Параметры
           </button>
-          <button onClick={saveCurrentBot} className="mt8">
+
+          <button
+            onClick={saveCurrentBot}
+            className="mt8"
+            style={{ width: "100%", marginTop: 8 }}
+          >
             Сохранить бота
           </button>
-          <button onClick={() => setView("manager")} className="mt8">
+
+          <button
+            onClick={() => setView("manager")}
+            className="mt8"
+            style={{ width: "100%", marginTop: 8 }}
+          >
             Мои боты
           </button>
-          <button onClick={handleValidate} className="mt8">
+
+          <button
+            onClick={handleValidate}
+            className="mt8"
+            style={{ width: "100%", marginTop: 8 }}
+          >
             Проверить
           </button>
+
           <input
             type="file"
             accept="application/json"
@@ -454,24 +669,26 @@ export default function BotEditorShell() {
           />
         </div>
 
-        <Canvas
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={onNodeClick}
-          onNodeContextMenu={onNodeContextMenu}
-          onEdgeContextMenu={onEdgeContextMenu}
-          onEdgeDoubleClick={onEdgeDoubleClick}
-          onNodesDelete={onNodesDelete}
-          onEdgesDelete={onEdgesDelete}
-          setNodes={setNodes}
-          setEdges={setEdges}
-          editingEdgeId={editingEdgeId}
-          setEditingEdgeId={setEditingEdgeId}
-        />
+        <div style={{ flex: 1, minWidth: 0, height: "100vh", position: "relative" }}>
+          <Canvas
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onNodeContextMenu={onNodeContextMenu}
+            onEdgeContextMenu={onEdgeContextMenu}
+            onEdgeDoubleClick={onEdgeDoubleClick}
+            onNodesDelete={onNodesDelete}
+            onEdgesDelete={onEdgesDelete}
+            dispatchOperation={dispatchOperation}
+            getCurrentVersion={getCurrentVersion}
+            editingEdgeId={editingEdgeId}
+            setEditingEdgeId={setEditingEdgeId}
+          />
+        </div>
 
         {showInspectorModal && (
           <div
@@ -544,5 +761,3 @@ export default function BotEditorShell() {
     </ReactFlowProvider>
   );
 }
-
-

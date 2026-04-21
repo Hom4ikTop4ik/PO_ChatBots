@@ -6,6 +6,10 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { createDefaultDataForType } from "../utils/scenarioUtils";
+import {
+  createBlockAddOp,
+  createEdgeUpdateOp,
+} from "../features/editor/operations";
 import PropTypes from "prop-types";
 
 export default function Canvas({
@@ -21,8 +25,8 @@ export default function Canvas({
   onEdgeDoubleClick,
   onNodesDelete,
   onEdgesDelete,
-  setNodes,
-  setEdges,
+  dispatchOperation,
+  getCurrentVersion,
   editingEdgeId,
   setEditingEdgeId,
 }) {
@@ -37,20 +41,21 @@ export default function Canvas({
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+
       const type = event.dataTransfer.getData("application/reactflow");
       if (!type) return;
-
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
       const instance = reactFlowInstance.current;
+
       const position = instance
-        ? instance.project({
-            x: event.clientX - bounds.left,
-            y: event.clientY - bounds.top,
+        ? instance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
           })
-        : { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+        : { x: event.clientX, y: event.clientY };
 
       const id = crypto.randomUUID();
       const data = createDefaultDataForType(type);
+
       const newNode = {
         id,
         type,
@@ -58,9 +63,9 @@ export default function Canvas({
         data,
       };
 
-      setNodes((nds) => nds.concat(newNode));
+      dispatchOperation(createBlockAddOp(newNode, getCurrentVersion()));
     },
-    [setNodes]
+    [dispatchOperation, getCurrentVersion]
   );
 
   return (
@@ -70,8 +75,17 @@ export default function Canvas({
         ref={reactFlowWrapper}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        style={{
+          width: "100%",
+          height: "100%",
+          flex: 1,
+          position: "relative",
+          minWidth: 0,
+          minHeight: 0,
+        }}
       >
         <ReactFlow
+          style={{ width: "100%", height: "100%" }}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -84,7 +98,9 @@ export default function Canvas({
           onEdgeDoubleClick={onEdgeDoubleClick}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
-          onInit={(instance) => (reactFlowInstance.current = instance)}
+          onInit={(instance) => {
+            reactFlowInstance.current = instance;
+          }}
           fitView
         >
           <MiniMap />
@@ -100,16 +116,20 @@ export default function Canvas({
             <p className="muted">
               Выберите новый целевой узел для этого соединения:
             </p>
+
             <div className="edge-list">
               {nodes.map((node) => {
                 const edge = edges.find((e) => e.id === editingEdgeId);
+
                 return (
                   <button
                     key={node.id}
                     onClick={() => {
-                      setEdges((eds) =>
-                        eds.map((e) =>
-                          e.id === editingEdgeId ? { ...e, target: node.id } : e
+                      dispatchOperation(
+                        createEdgeUpdateOp(
+                          editingEdgeId,
+                          { target: node.id },
+                          getCurrentVersion()
                         )
                       );
                       setEditingEdgeId(null);
@@ -118,11 +138,12 @@ export default function Canvas({
                       edge?.target === node.id ? "selected" : ""
                     }`}
                   >
-                    {node.data.label} ({node.type})
+                    {node.data.label || node.id} ({node.type})
                   </button>
                 );
               })}
             </div>
+
             <button
               onClick={() => setEditingEdgeId(null)}
               className="btn-cancel"
@@ -149,8 +170,8 @@ Canvas.propTypes = {
   onEdgeDoubleClick: PropTypes.func.isRequired,
   onNodesDelete: PropTypes.func.isRequired,
   onEdgesDelete: PropTypes.func.isRequired,
-  setNodes: PropTypes.func.isRequired,
-  setEdges: PropTypes.func.isRequired,
+  dispatchOperation: PropTypes.func.isRequired,
+  getCurrentVersion: PropTypes.func.isRequired,
   editingEdgeId: PropTypes.string,
   setEditingEdgeId: PropTypes.func.isRequired,
 };

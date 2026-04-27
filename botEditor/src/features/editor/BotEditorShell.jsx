@@ -51,6 +51,7 @@ import {
   createEdgeAddOp,
   createEdgeDeleteOp,
   createScenarioReplaceOp,
+  createInverseOperation,
 } from "./operations";
 
 const nodeTypes = {
@@ -89,9 +90,14 @@ export default function BotEditorShell() {
   const [scenarioVersion, setScenarioVersion] = useState(0);
   const [operationLog, setOperationLog] = useState([]);
 
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
   const fileInputRef = useRef(null);
   const editorStateRef = useRef(INITIAL_EDITOR_STATE);
   const scenarioVersionRef = useRef(0);
+  
+  const dragStartPosRef = useRef({}); 
 
   const nodes = editorState.nodes;
   const edges = editorState.edges;
@@ -138,7 +144,15 @@ export default function BotEditorShell() {
     [resetOperationState]
   );
 
-  const dispatchOperation = useCallback((operation) => {
+  const dispatchOperation = useCallback((operation, isHistoryAction = false) => {
+    if (!operation) return;
+
+    const currentState = editorStateRef.current;
+    let inverseOp = null;
+    if (!isHistoryAction) {
+      inverseOp = createInverseOperation(currentState, operation);
+    }
+    
     setEditorState((prev) => {
       const next = applyOperation(prev, operation);
       editorStateRef.current = next;
@@ -159,7 +173,44 @@ export default function BotEditorShell() {
       const next = [...prev, entry];
       return next.slice(-200);
     });
+
+    if (!isHistoryAction && inverseOp) {
+      setUndoStack((prev) => [...prev, { original: operation, inverse: inverseOp }]);
+      setRedoStack([]);
+    }
   }, []);
+
+  const handleUndo = useCallback(() => {
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev; // Нечего отменять
+      
+      const last = prev[prev.length - 1]; // Берём последнее действие
+      const newUndo = prev.slice(0, -1);
+      
+      // Применяем обратную операцию (isHistoryAction = true)
+      dispatchOperation(last.inverse, true);
+      
+      // Перекладываем в стек Redo, чтобы можно было вернуть обратно
+      setRedoStack((r) => [...r, last]);
+      return newUndo;
+    });
+  }, [dispatchOperation]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((prev) => {
+      if (prev.length === 0) return prev; // Нечего повторять
+      
+      const last = prev[prev.length - 1];
+      const newRedo = prev.slice(0, -1);
+      
+      // Снова применяем оригинальную операцию
+      dispatchOperation(last.original, true);
+      
+      // И возвращаем возможность её отменить
+      setUndoStack((u) => [...u, last]);
+      return newRedo;
+    });
+  }, [dispatchOperation]);
 
   const onConnect = useCallback(
     (params) => {
@@ -173,15 +224,29 @@ export default function BotEditorShell() {
       const nonRemoveChanges = changes.filter((change) => change.type !== "remove");
       if (nonRemoveChanges.length === 0) return;
 
+      nonRemoveChanges.forEach((change) => {
+        if (change.type === "position" && change.dragging) {
+          if (!dragStartPosRef.current[change.id]) {
+            const node = editorStateRef.current.nodes.find((n) => n.id === change.id);
+            if (node) {
+              dragStartPosRef.current[change.id] = { ...node.position };
+            }
+          }
+        }
+      });
+
       const moveOperations = nonRemoveChanges
         .filter((change) => change.type === "position" && change.dragging === false)
         .map((change) => {
           const currentNode = editorStateRef.current.nodes.find((n) => n.id === change.id);
           const safePosition = change.position || currentNode?.position;
+          const startPos = dragStartPosRef.current[change.id] || null;
+          delete dragStartPosRef.current[change.id];
 
           return createBlockMoveOp(
             change.id,
             safePosition,
+            startPos,
             getCurrentVersion()
           );
         })
@@ -627,6 +692,23 @@ export default function BotEditorShell() {
           <button onClick={handleExportScenario} style={{ width: "100%", marginTop: 8 }}>
             Экспорт
           </button>
+
+          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+            <button 
+              onClick={handleUndo} 
+              disabled={undoStack.length === 0}
+              style={{ flex: 1, opacity: undoStack.length === 0 ? 0.5 : 1 }}
+            >
+              ↩ Отменить
+            </button>
+            <button 
+              onClick={handleRedo} 
+              disabled={redoStack.length === 0}
+              style={{ flex: 1, opacity: redoStack.length === 0 ? 0.5 : 1 }}
+            >
+              ↪ Повторить
+            </button>
+          </div>
 
           <button
             onClick={() => setShowBotSettings(true)}

@@ -39,7 +39,7 @@ export function createBlockAddOp(node, baseVersion = 0) {
   );
 }
 
-export function createBlockMoveOp(blockId, position, baseVersion = 0) {
+export function createBlockMoveOp(blockId, position, prevPosition = null, baseVersion = 0) {
   if (
     !position ||
     typeof position.x !== "number" ||
@@ -56,6 +56,9 @@ export function createBlockMoveOp(blockId, position, baseVersion = 0) {
         x: Math.round(position.x),
         y: Math.round(position.y),
       },
+      prev_position: prevPosition 
+        ? { x: Math.round(prevPosition.x), y: Math.round(prevPosition.y) } 
+        : null,
     },
     baseVersion
   );
@@ -249,5 +252,57 @@ export function applyOperation(editorState, operation) {
 
     default:
       return current;
+  }
+}
+
+export function createInverseOperation(prev_state, op) {
+  switch (op.type) {
+    case OPERATION_TYPES.BLOCK_ADD:
+      return createBlockDeleteOp(op.data.node.id);
+
+    case OPERATION_TYPES.BLOCK_DELETE:
+      return createScenarioReplaceOp({ nodes: prev_state.nodes, edges: prev_state.edges });
+
+    case OPERATION_TYPES.BLOCK_MOVE: {
+      if (op.data.prev_position) {
+        return createBlockMoveOp(op.data.block_id, op.data.prev_position, op.data.new_position);
+      }
+      
+      const node = prev_state.nodes.find(n => n.id === op.data.block_id);
+      return createBlockMoveOp(op.data.block_id, node ? node.position : {x: 0, y: 0});
+    }
+
+    case OPERATION_TYPES.BLOCK_UPDATE: {
+      const node = prev_state.nodes.find(n => n.id === op.data.block_id);
+      const oldPatch = {};
+      for (const key in op.data.patch) {
+        oldPatch[key] = node ? node.data[key] : undefined;
+      }
+      return createBlockUpdateOp(op.data.block_id, oldPatch);
+    }
+
+    case OPERATION_TYPES.EDGE_ADD:
+      return createEdgeDeleteOp(op.data.edge.id);
+
+    case OPERATION_TYPES.EDGE_DELETE: {
+      const edge = prev_state.edges.find(e => e.id === op.data.edge_id);
+      if (!edge) return null;
+      return createEdgeAddOp(edge);
+    }
+
+    case OPERATION_TYPES.EDGE_UPDATE: {
+      const edge = prev_state.edges.find(e => e.id === op.data.edge_id);
+      const oldPatch = {};
+      for (const key in op.data.patch) {
+        oldPatch[key] = edge ? edge[key] : undefined;
+      }
+      return createEdgeUpdateOp(op.data.edge_id, oldPatch);
+    }
+
+    case OPERATION_TYPES.SCENARIO_REPLACE:
+      return createScenarioReplaceOp({ nodes: prev_state.nodes, edges: prev_state.edges });
+
+    default:
+      return null;
   }
 }

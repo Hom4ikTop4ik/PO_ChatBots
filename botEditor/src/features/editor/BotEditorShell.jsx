@@ -124,6 +124,8 @@ export default function BotEditorShell() {
     };
   }, [operationLog]);
 
+
+
   const getCurrentVersion = useCallback(() => scenarioVersionRef.current, []);
 
   const resetOperationState = useCallback(() => {
@@ -211,6 +213,29 @@ export default function BotEditorShell() {
       return newRedo;
     });
   }, [dispatchOperation]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isInput = e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA";
+      if (isInput) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   const onConnect = useCallback(
     (params) => {

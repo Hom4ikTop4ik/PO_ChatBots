@@ -1,4 +1,5 @@
-import PropTypes from 'prop-types';
+import PropTypes from "prop-types";
+import { LockableField } from "../../features/collaboration";
 
 export default function MessageInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
@@ -7,7 +8,10 @@ export default function MessageInspector({ node, updateNodeData, usedVars }) {
       <h3>Сообщение</h3>
       <label>
         Метка
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="label"
+          as="input"
           type="text"
           value={data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
@@ -15,7 +19,10 @@ export default function MessageInspector({ node, updateNodeData, usedVars }) {
       </label>
       <label>
         Текст сообщения
-        <textarea
+        <LockableField
+          blockId={node.id}
+          fieldName="text"
+          as="textarea"
           rows="3"
           value={data.text}
           onChange={(e) => updateNodeData(node.id, { text: e.target.value })}
@@ -23,8 +30,8 @@ export default function MessageInspector({ node, updateNodeData, usedVars }) {
         />
         <div className="example-text">
           Пример: Привет, {"$"}
-          {"user_name"}! Ваш баланс: {"$"}
-          {"balance"}
+          {"{user_name}"}! Ваш баланс: {"$"}
+          {"{balance}"}
         </div>
       </label>
 

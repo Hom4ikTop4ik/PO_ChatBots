@@ -1,4 +1,6 @@
-import PropTypes from 'prop-types';
+import PropTypes from "prop-types";
+import { LockableField } from "../../features/collaboration";
+
 export default function InputInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
@@ -6,7 +8,10 @@ export default function InputInspector({ node, updateNodeData }) {
       <h3>Ввод</h3>
       <label>
         Метка
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="label"
+          as="input"
           type="text"
           value={data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
@@ -14,7 +19,10 @@ export default function InputInspector({ node, updateNodeData }) {
       </label>
       <label>
         Запрос
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="prompt"
+          as="input"
           type="text"
           value={data.prompt}
           onChange={(e) => updateNodeData(node.id, { prompt: e.target.value })}
@@ -23,7 +31,10 @@ export default function InputInspector({ node, updateNodeData }) {
       </label>
       <label>
         Имя переменной
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="variableName"
+          as="input"
           type="text"
           value={data.variableName}
           onChange={(e) =>
@@ -33,7 +44,10 @@ export default function InputInspector({ node, updateNodeData }) {
       </label>
       <label>
         Тип переменной
-        <select
+        <LockableField
+          blockId={node.id}
+          fieldName="variableType"
+          as="select"
           value={data.variableType}
           onChange={(e) =>
             updateNodeData(node.id, { variableType: e.target.value })
@@ -42,7 +56,7 @@ export default function InputInspector({ node, updateNodeData }) {
           <option value="string">string</option>
           <option value="number">number</option>
           <option value="date">date</option>
-        </select>
+        </LockableField>
       </label>
     </div>
   );

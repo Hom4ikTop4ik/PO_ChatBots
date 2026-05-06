@@ -1,4 +1,6 @@
-import PropTypes from 'prop-types';
+import PropTypes from "prop-types";
+import { LockableField } from "../../features/collaboration";
+
 export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   return (
@@ -6,7 +8,10 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
       <h3>Варианты выбора</h3>
       <label>
         Метка
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="label"
+          as="input"
           type="text"
           value={data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
@@ -14,7 +19,10 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
       </label>
       <label>
         Запрос
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="prompt"
+          as="input"
           type="text"
           value={data.prompt}
           onChange={(e) => updateNodeData(node.id, { prompt: e.target.value })}
@@ -23,7 +31,10 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
       </label>
       <label>
         Переменная результата
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="resultVariable"
+          as="input"
           type="text"
           value={data.resultVariable}
           onChange={(e) =>
@@ -33,7 +44,10 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
       </label>
       <label>
         Опции (JSON)
-        <textarea
+        <LockableField
+          blockId={node.id}
+          fieldName="options"
+          as="textarea"
           rows="4"
           value={JSON.stringify(data.options || [], null, 2)}
           onChange={(e) => {
@@ -42,7 +56,8 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
               if (Array.isArray(parsed)) {
                 updateNodeData(node.id, { options: parsed });
               }
-            } catch {}
+            } catch {
+            }
           }}
         />
       </label>
@@ -62,6 +77,7 @@ export default function ChoiceInspector({ node, updateNodeData, usedVars }) {
     </div>
   );
 }
+
 ChoiceInspector.propTypes = {
   node: PropTypes.shape({
     id: PropTypes.string.isRequired,

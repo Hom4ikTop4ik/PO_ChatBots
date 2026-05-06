@@ -1,4 +1,6 @@
-import PropTypes from 'prop-types';
+import PropTypes from "prop-types";
+import { LockableField } from "../../features/collaboration";
+
 export default function ApiInspector({ node, updateNodeData }) {
   const data = node.data;
   return (
@@ -6,7 +8,10 @@ export default function ApiInspector({ node, updateNodeData }) {
       <h3>API Запрос</h3>
       <label>
         Метка
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="label"
+          as="input"
           type="text"
           value={data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
@@ -14,7 +19,10 @@ export default function ApiInspector({ node, updateNodeData }) {
       </label>
       <label>
         URL
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="url"
+          as="input"
           type="text"
           value={data.url}
           onChange={(e) => updateNodeData(node.id, { url: e.target.value })}
@@ -22,7 +30,10 @@ export default function ApiInspector({ node, updateNodeData }) {
       </label>
       <label>
         Метод
-        <select
+        <LockableField
+          blockId={node.id}
+          fieldName="method"
+          as="select"
           value={data.method}
           onChange={(e) => updateNodeData(node.id, { method: e.target.value })}
         >
@@ -30,24 +41,31 @@ export default function ApiInspector({ node, updateNodeData }) {
           <option value="POST">POST</option>
           <option value="PUT">PUT</option>
           <option value="DELETE">DELETE</option>
-        </select>
+        </LockableField>
       </label>
       <label>
         Заголовки (JSON)
-        <textarea
+        <LockableField
+          blockId={node.id}
+          fieldName="headers"
+          as="textarea"
           rows="3"
           value={JSON.stringify(data.headers || {}, null, 2)}
           onChange={(e) => {
             try {
               const parsed = JSON.parse(e.target.value);
               updateNodeData(node.id, { headers: parsed });
-            } catch {}
+            } catch {
+            }
           }}
         />
       </label>
       <label>
         Тело запроса
-        <textarea
+        <LockableField
+          blockId={node.id}
+          fieldName="body"
+          as="textarea"
           rows="3"
           value={data.body}
           onChange={(e) => updateNodeData(node.id, { body: e.target.value })}
@@ -56,7 +74,10 @@ export default function ApiInspector({ node, updateNodeData }) {
       <label>
         {/* TODO: сделать так чтобы переменная здесь отображалась как возможная для использования (как варианты в инспекторе сообщения) */}
         Переменная результата
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="resultVariable"
+          as="input"
           type="text"
           value={data.resultVariable}
           onChange={(e) =>
@@ -66,7 +87,10 @@ export default function ApiInspector({ node, updateNodeData }) {
       </label>
       <label>
         Количество повторов
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="retryCount"
+          as="input"
           type="number"
           value={data.retryCount}
           min="0"

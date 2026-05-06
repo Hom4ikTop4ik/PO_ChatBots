@@ -8,9 +8,11 @@ export default function BotsManager({
   onSelectBot,
   onNewBot,
   onDeleteBot,
+  onJoinSession,
 }) {
   const [newBotName, setNewBotName] = useState("");
   const [search, setSearch] = useState("");
+  const [joinId, setJoinId] = useState("");
 
   const handleCreate = () => {
     const name = newBotName.trim();
@@ -21,6 +23,13 @@ export default function BotsManager({
 
   const handleDelete = (botId) => {
     onDeleteBot(botId);
+  };
+
+  const handleJoin = () => {
+    const id = joinId.trim();
+    if (!id) return;
+    if (onJoinSession) onJoinSession(id);
+    setJoinId("");
   };
 
   const handleExportBot = (bot) => {
@@ -79,6 +88,42 @@ export default function BotsManager({
             onChange={(e) => setSearch(e.target.value)}
             className="bots-input bots-input-search"
           />
+        </div>
+      </div>
+
+      {/* Совместная работа: вход в чужую сессию по ID (Vision §3.1) */}
+      <div
+        style={{
+          padding: "12px 16px",
+          margin: "0 16px 16px",
+          background: "#f0f7ff",
+          border: "1px solid #cfe2ff",
+          borderRadius: 6,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+          🤝 Присоединиться к сессии совместного редактирования
+        </div>
+        <div style={{ fontSize: 12, color: "#555", marginBottom: 8 }}>
+          Вставьте ID сессии, который дал вам владелец бота, чтобы открыть
+          сценарий и редактировать его вместе.
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="text"
+            placeholder="UUID сценария, например 4f3a..."
+            value={joinId}
+            onChange={(e) => setJoinId(e.target.value)}
+            className="bots-input"
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={handleJoin}
+            className="bots-button bots-button-primary"
+            disabled={!joinId.trim()}
+          >
+            Присоединиться
+          </button>
         </div>
       </div>
 
@@ -144,4 +189,5 @@ BotsManager.propTypes = {
   onSelectBot: PropTypes.func.isRequired,
   onNewBot: PropTypes.func.isRequired,
   onDeleteBot: PropTypes.func.isRequired,
+  onJoinSession: PropTypes.func,
 };

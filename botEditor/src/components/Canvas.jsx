@@ -1,9 +1,5 @@
 import React, { useRef, useCallback } from "react";
-import ReactFlow, {
-  MiniMap,
-  Controls,
-  Background,
-} from "reactflow";
+import ReactFlow, { MiniMap, Controls, Background } from "reactflow";
 import "reactflow/dist/style.css";
 import { createDefaultDataForType } from "../utils/scenarioUtils";
 import {
@@ -11,6 +7,10 @@ import {
   createEdgeUpdateOp,
 } from "../features/editor/operations";
 import PropTypes from "prop-types";
+import {
+  PresenceLayer,
+  useCollaboration,
+} from "../features/collaboration";
 
 export default function Canvas({
   nodes,
@@ -32,6 +32,7 @@ export default function Canvas({
 }) {
   const reactFlowWrapper = useRef(null);
   const reactFlowInstance = useRef(null);
+  const collab = useCollaboration();
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -41,32 +42,48 @@ export default function Canvas({
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
-
       const type = event.dataTransfer.getData("application/reactflow");
       if (!type) return;
       const instance = reactFlowInstance.current;
-
       const position = instance
-        ? instance.screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-          })
+        ? instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
         : { x: event.clientX, y: event.clientY };
 
       const id = crypto.randomUUID();
       const data = createDefaultDataForType(type);
-
-      const newNode = {
-        id,
-        type,
-        position,
-        data,
-      };
-
+      const newNode = { id, type, position, data };
       dispatchOperation(createBlockAddOp(newNode, getCurrentVersion()));
     },
     [dispatchOperation, getCurrentVersion]
   );
+
+  // Аннотируем чужие выделения цветом владельца (Vision §3.1):
+  // подмешиваем CSS-переменную/border, не ломая существующую логику.
+  const annotatedNodes = React.useMemo(() => {
+    if (!collab.enabled) return nodes;
+    const myUserId = collab.you?.user_id;
+    const selectionByBlock = new Map();
+    for (const p of collab.presence) {
+      if (p.user_id === myUserId) continue;
+      if (p.selected_block_id) {
+        const participant = collab.getParticipant(p.user_id);
+        if (participant) selectionByBlock.set(p.selected_block_id, participant);
+      }
+    }
+    if (selectionByBlock.size === 0) return nodes;
+    return nodes.map((n) => {
+      const owner = selectionByBlock.get(n.id);
+      if (!owner) return n;
+      return {
+        ...n,
+        style: {
+          ...(n.style || {}),
+          boxShadow: `0 0 0 3px ${owner.color}`,
+          borderRadius: 6,
+        },
+      };
+    });
+  }, [nodes, collab]);
 
   return (
     <>
@@ -86,7 +103,7 @@ export default function Canvas({
       >
         <ReactFlow
           style={{ width: "100%", height: "100%" }}
-          nodes={nodes}
+          nodes={annotatedNodes}
           edges={edges}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
@@ -107,6 +124,9 @@ export default function Canvas({
           <Controls />
           <Background variant="dots" gap={16} size={1} />
         </ReactFlow>
+
+        {/* Presence-оверлей: курсоры других участников (Vision §3.1) */}
+        <PresenceLayer wrapperRef={reactFlowWrapper} />
       </div>
 
       {editingEdgeId && (
@@ -120,7 +140,6 @@ export default function Canvas({
             <div className="edge-list">
               {nodes.map((node) => {
                 const edge = edges.find((e) => e.id === editingEdgeId);
-
                 return (
                   <button
                     key={node.id}

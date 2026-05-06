@@ -1,4 +1,5 @@
-import PropTypes from 'prop-types';
+import PropTypes from "prop-types";
+import { LockableField } from "../../features/collaboration";
 
 export default function ConditionInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
@@ -7,7 +8,10 @@ export default function ConditionInspector({ node, updateNodeData, usedVars }) {
       <h3>Условие</h3>
       <label>
         Метка
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="label"
+          as="input"
           type="text"
           value={data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
@@ -15,7 +19,10 @@ export default function ConditionInspector({ node, updateNodeData, usedVars }) {
       </label>
       <label>
         Выражение
-        <input
+        <LockableField
+          blockId={node.id}
+          fieldName="expression"
+          as="input"
           type="text"
           value={data.expression}
           onChange={(e) =>

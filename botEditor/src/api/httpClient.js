@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+import { API_BASE_URL } from "../config";
 
 export async function httpRequest(path, { method = "GET", body } = {}) {
   const url = `${API_BASE_URL}${path}`;

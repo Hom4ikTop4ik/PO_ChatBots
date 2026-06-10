@@ -13,7 +13,9 @@
     "pyodide": "^0.29.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "reactflow": "^11.7.8"
+    "react-router-dom": "^7.18.0",
+    "reactflow": "^11.7.8",
+    "reconnecting-websocket": "^4.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

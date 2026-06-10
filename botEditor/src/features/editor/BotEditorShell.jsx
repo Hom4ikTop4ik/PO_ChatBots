@@ -10,9 +10,12 @@ import {
   applyEdgeChanges,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { useParams, useNavigate } from "react-router-dom";
 
 import "../../styles/App.css";
 import "../../styles/index.css";
+
+import { API_BASE_URL } from '../../config'
 
 import { fromScenario, toScenario } from "../../utils/scenarioUtils";
 import { validateScenario } from "../../utils/validation";
@@ -37,12 +40,21 @@ import ApiInspector from "../../components/inspectors/ApiInspector";
 import DefaultInspector from "../../components/inspectors/DefaultInspector";
 
 import { useAuth } from "../../auth/AuthContext";
+import { useCollab } from "./useCollab";
+
 import {
   fetchBotsApi,
+  fetchBotApi,
   createBotApi,
   updateBotApi,
   deleteBotApi,
 } from "../../api/botsApi";
+import { 
+  createSessionApi,
+  getSessionSnapshotApi,
+  closeSessionApi
+} from "../../api/collabApi";
+
 import {
   applyOperation,
   createBlockDeleteOp,
@@ -76,6 +88,7 @@ export default function BotEditorShell() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [showInspectorModal, setShowInspectorModal] = useState(false);
 
+  const [currentBotId, setCurrentBotId] = useState(null);
   const [botName, setBotName] = useState("Bot");
   const [botToken, setBotToken] = useState("");
   const [globalVariables, setGlobalVariables] = useState("");
@@ -83,15 +96,26 @@ export default function BotEditorShell() {
 
   const [editingEdgeId, setEditingEdgeId] = useState(null);
 
-  const [view, setView] = useState("editor");
-  const [bots, setBots] = useState([]);
-  const [loadingBots, setLoadingBots] = useState(false);
+  // REMOVE
+  // const [view, setView] = useState("editor");
+  // const [bots, setBots] = useState([]);
+  // const [loadingBots, setLoadingBots] = useState(false);
+
+  const { botId, sessionId } = useParams();
+  const navigate = useNavigate();
+  
+  const isCollabMode = !!sessionId;
+  
+  const [isOwner, setIsOwner] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [scenarioVersion, setScenarioVersion] = useState(0);
   const [operationLog, setOperationLog] = useState([]);
 
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+
+  const [inviteLink, setInviteLink] = useState("");
 
   const fileInputRef = useRef(null);
   const editorStateRef = useRef(INITIAL_EDITOR_STATE);
@@ -146,12 +170,12 @@ export default function BotEditorShell() {
     [resetOperationState]
   );
 
-  const dispatchOperation = useCallback((operation, isHistoryAction = false) => {
+  const dispatchOperation = useCallback((operation, isHistoryAction = false, isRemote = false) => {
     if (!operation) return;
 
     const currentState = editorStateRef.current;
     let inverseOp = null;
-    if (!isHistoryAction) {
+    if (!isHistoryAction && !isRemote) {
       inverseOp = createInverseOperation(currentState, operation);
     }
     
@@ -162,7 +186,7 @@ export default function BotEditorShell() {
     });
 
     setScenarioVersion((prev) => {
-      const next = prev + 1;
+      const next = isRemote ? (operation.applied_version || prev + 1) : prev + 1;
       scenarioVersionRef.current = next;
       return next;
     });
@@ -176,11 +200,74 @@ export default function BotEditorShell() {
       return next.slice(-200);
     });
 
-    if (!isHistoryAction && inverseOp) {
-      setUndoStack((prev) => [...prev, { original: operation, inverse: inverseOp }]);
+    if (isRemote) {
+      // ИДЕЯ ДЛЯ MVP: Пришла чужая операция -> инвалидируем локальную историю
+      setUndoStack([]);
       setRedoStack([]);
+    } else {
+      // Отправляем НАШИ действия (включая обычные, Undo и Redo)
+      if (sendOperationRef.current) {
+        sendOperationRef.current({
+          ...operation,
+          base_version: scenarioVersionRef.current - 1
+        });
+      }
+
+      if (!isHistoryAction && inverseOp) {
+        setUndoStack((prev) => [...prev, { original: operation, inverse: inverseOp }]);
+        setRedoStack([]);
+      }
     }
   }, []);
+
+  const sendOperationRef = useRef(null);
+
+  const handleRemoteOperation = useCallback((operation) => {
+    dispatchOperation(operation, false, true);
+  }, [dispatchOperation]);
+
+  const handleOpAck = useCallback((op_id, new_version) => {
+    setScenarioVersion(new_version);
+    scenarioVersionRef.current = new_version;
+  }, []);
+
+  const [wsToken, setWsToken] = useState(null);
+
+  useEffect(() => {
+    // Получаем временный токен для WebSocket
+    fetch(`${API_BASE_URL}/auth/ws-token`, {credentials: 'include'})
+      .then(res => res.json())
+      .then(data => setWsToken(data.token));
+  }, []);
+
+  const handleSessionClosed = useCallback(() => {
+    alert("Владелец закрыл сессию.");
+    navigate("/");
+  }, [navigate]);
+
+  // Хук активируется ТОЛЬКО если есть sessionId
+  const { isConnected, sendOperation } = useCollab(
+    sessionId, 
+    handleRemoteOperation, 
+    handleOpAck, 
+    handleSessionClosed
+  );
+
+  useEffect(() => {
+    sendOperationRef.current = sendOperation;
+  }, [sendOperation]);
+
+  // Кладем актуальную функцию в Ref, чтобы избежать зацикливания хуков
+  useEffect(() => {
+    sendOperationRef.current = sendOperation;
+  }, [sendOperation]);
+  
+  const createInvite = async () => {
+    const res = await fetch(`${API_BASE_URL}/sessions/create/${currentBotId}`, { method: 'POST' });
+    const data = await res.json();
+    const url = `${window.location.origin}/connect/${data.session_id}`;
+    setInviteLink(url);
+  };
 
   const handleUndo = useCallback(() => {
     setUndoStack((prev) => {
@@ -393,25 +480,87 @@ export default function BotEditorShell() {
     return Array.from(vars).sort();
   }, [nodes, globalVariables]);
 
-  useEffect(() => {
-    setLoadingBots(true);
+  // REMOVE
+  // useEffect(() => {
+  //   setLoadingBots(true);
 
-    fetchBotsApi()
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setBots(data);
-        } else {
-          setBots([]);
-        }
-      })
-      .catch((e) => {
-        console.error("Failed to fetch bots", e);
-        setBots([]);
-      })
-      .finally(() => setLoadingBots(false));
-  }, []);
+  //   fetchBotsApi()
+  //     .then((data) => {
+  //       if (Array.isArray(data)) {
+  //         setBots(data);
+  //       } else {
+  //         setBots([]);
+  //       }
+  //     })
+  //     .catch((e) => {
+  //       console.error("Failed to fetch bots", e);
+  //       setBots([]);
+  //     })
+  //     .finally(() => setLoadingBots(false));
+  // }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+
+    if (!isCollabMode && botId) {
+      // SOLO MODE (Загружаем обычного бота)
+      fetchBotApi(botId)
+        .then(bot => {
+          const { nodes: newNodes, edges: newEdges } = fromScenario(bot.scenario);
+          replaceEditorState({ nodes: newNodes, edges: newEdges }, { resetHistory: true });
+          setBotName(bot.scenario.BotName || bot.name);
+          setBotToken(bot.scenario.Token || "");
+          setGlobalVariables(bot.scenario.GlobalVariables ? bot.scenario.GlobalVariables.join("\n") : "");
+          setCurrentBotId(bot.id);
+          setIsOwner(true);
+        })
+        .catch(e => { alert("Ошибка: " + e.message); navigate("/"); })
+        .finally(() => setIsLoading(false));
+
+    } else if (isCollabMode && sessionId) {
+      // COLLAB MODE (Загружаем сессию и догоняем историю)
+      getSessionSnapshotApi(sessionId)
+        .then(snapshot => {
+          // 1. Парсим базовый граф
+          const { nodes: baseNodes, edges: baseEdges } = fromScenario(snapshot.scenario || { Blocks: [] });
+          let currentState = { nodes: baseNodes, edges: baseEdges };
+
+          // 2. Накатываем не сохраненные операции из лога!
+          if (snapshot.operations && snapshot.operations.length > 0) {
+            snapshot.operations.forEach(opMsg => {
+              // Форматируем операцию так, как ожидает наш локальный applyOperation
+              const formattedOp = { type: opMsg.op_type, data: opMsg.data };
+              currentState = applyOperation(currentState, formattedOp);
+            });
+          }
+
+          // 3. Сохраняем состояние
+          replaceEditorState(currentState, { resetHistory: true });
+          
+          setBotName(snapshot.bot_name || "Bot");
+          setBotToken(snapshot.scenario?.Token || "");
+          setGlobalVariables(snapshot.scenario?.GlobalVariables ? snapshot.scenario.GlobalVariables.join("\n") : "");
+          setCurrentBotId(snapshot.bot_id);
+          setIsOwner(snapshot.is_owner);
+          
+          // Синхронизируем базовую версию, чтобы новые операции отправлялись с правильным base_version
+          setScenarioVersion(snapshot.current_version);
+          scenarioVersionRef.current = snapshot.current_version;
+        })
+        .catch(e => { alert("Сессия недоступна: " + e.message); navigate("/"); })
+        .finally(() => setIsLoading(false));
+    }
+  }, [botId, sessionId, isCollabMode, navigate, replaceEditorState]);
 
   const saveCurrentBot = async () => {
+    const idToSave = currentBotId; 
+
+    if (!idToSave || idToSave === "undefined") {
+      console.error("Attempted to save bot without ID");
+      alert("Ошибка: ID бота не определен. Попробуйте перезагрузить страницу.");
+      return;
+    }
+
     const scenario = toScenario(nodes, edges);
     scenario.BotName = botName;
     scenario.Token = botToken;
@@ -434,25 +583,14 @@ export default function BotEditorShell() {
     const name = globalThis.prompt("Введите имя бота", defaultName);
     if (!name) return;
 
-    const existing = bots.find((b) => b.name === name);
-
     try {
-      if (existing) {
-        const updated = await updateBotApi({
-          id: existing.id,
-          name,
-          scenario,
-        });
+      await updateBotApi({
+        id: idToSave,
+        name: botName,
+        scenario,
+      });
 
-        setBots((prev) =>
-          prev.map((b) => (b.id === existing.id ? updated : b))
-        );
-      } else {
-        const created = await createBotApi({ name, scenario });
-        setBots((prev) => [...prev, created]);
-      }
-
-      alert("Бот сохранён.");
+      alert("Бот успешно сохранён.");
     } catch (e) {
       alert("Не удалось сохранить бота: " + e.message);
     }
@@ -478,6 +616,7 @@ export default function BotEditorShell() {
     );
 
     setSelectedNodeId(null);
+    setCurrentBotId(bot.id);
     setBotName(bot.scenario.BotName || bot.name);
     setBotToken(bot.scenario.Token || "");
 
@@ -496,6 +635,7 @@ export default function BotEditorShell() {
   const handleNewBot = (name) => {
     replaceEditorState({ nodes: [], edges: [] }, { resetHistory: true });
     setSelectedNodeId(null);
+    setCurrentBotId(null);
     setBotName(name || "Bot");
     setBotToken("");
     setGlobalVariables("");
@@ -626,19 +766,23 @@ export default function BotEditorShell() {
     }
   };
 
-  if (view === "manager") {
+  if (isLoading) {
     return (
-      <ReactFlowProvider>
-        <div className="app">
-          <BotsManager
-            bots={bots}
-            loading={loadingBots}
-            onSelectBot={handleSelectBot}
-            onNewBot={handleNewBot}
-            onDeleteBot={handleDeleteBot}
-          />
-        </div>
-      </ReactFlowProvider>
+      <div style={{ 
+        height: "100vh", 
+        display: "flex", 
+        flexDirection: "column",
+        alignItems: "center", 
+        justifyContent: "center",
+        background: "#f5f5f5",
+        fontFamily: "sans-serif"
+      }}>
+        <div className="spinner"></div> {/* Если есть CSS спиннер */}
+        <h2 style={{ color: "#1976d2" }}>Загрузка редактора...</h2>
+        <p style={{ color: "#666" }}>
+          {sessionId ? `Присоединение к сессии ${sessionId.slice(0,8)}...` : "Загрузка вашего сценария..."}
+        </p>
+      </div>
     );
   }
 
@@ -735,37 +879,75 @@ export default function BotEditorShell() {
             </button>
           </div>
 
-          <button
-            onClick={() => setShowBotSettings(true)}
-            className="mt8"
-            style={{ width: "100%", marginTop: 8 }}
-          >
-            Параметры
+          {/* Кнопки общие для Владельца (в любом режиме) */}
+          {isOwner && (
+            <>
+              <button onClick={() => setShowBotSettings(true)} className="mt8" style={{ width: "100%" }}>
+                Параметры
+              </button>
+              <button onClick={saveCurrentBot} className="mt8" style={{ width: "100%" }}>
+                Сохранить бота
+              </button>
+            </>
+          )}
+
+          <button onClick={handleValidate} className="mt8" style={{ width: "100%" }}>
+            Проверить сценарий
           </button>
 
-          <button
-            onClick={saveCurrentBot}
-            className="mt8"
-            style={{ width: "100%", marginTop: 8 }}
-          >
-            Сохранить бота
-          </button>
-
-          <button
-            onClick={() => setView("manager")}
-            className="mt8"
-            style={{ width: "100%", marginTop: 8 }}
-          >
-            Мои боты
-          </button>
-
-          <button
-            onClick={handleValidate}
-            className="mt8"
-            style={{ width: "100%", marginTop: 8 }}
-          >
-            Проверить
-          </button>
+          {/* ЛОГИКА СЕССИЙ */}
+          {!isCollabMode ? (
+            // МЫ В SOLO MODE (Можем пригласить)
+            <>
+              <button 
+                onClick={async () => {
+                  try {
+                    const data = await createSessionApi(currentBotId);
+                    navigate(`/collab/${data.session_id}`);
+                  } catch(e) { alert("Ошибка создания сессии"); }
+                }} 
+                style={{ width: "100%", marginTop: 8, background: "#4caf50", color: "white" }}
+              >
+                Начать совместную работу
+              </button>
+              <button onClick={() => navigate("/")} className="mt8" style={{ width: "100%" }}>
+                Мои боты (Выход)
+              </button>
+            </>
+          ) : (
+            // МЫ В COLLAB MODE
+            <>
+              {isOwner ? (
+                // Владелец
+                <>
+                  <div style={{ marginTop: 8, padding: 8, background: '#e3f2fd', borderRadius: 4, fontSize: 11 }}>
+                    <strong>Сессия активна!</strong><br/>
+                    Отправьте ссылку участникам:<br/>
+                    <input readOnly value={`${window.location.origin}/connect/${sessionId}`} style={{width: '100%', marginTop: 4}} />
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      if(window.confirm("Закрыть сессию для всех?")) {
+                        await closeSessionApi(sessionId);
+                        navigate(`/editor/${currentBotId}`);
+                      }
+                    }} 
+                    style={{ width: "100%", marginTop: 8, background: "#d32f2f", color: "white" }}
+                  >
+                    Завершить сессию
+                  </button>
+                </>
+              ) : (
+                // Гость
+                <button 
+                  onClick={() => navigate("/")} 
+                  style={{ width: "100%", marginTop: 8, background: "#f57c00", color: "white" }}
+                >
+                  Покинуть сессию
+                </button>
+              )}
+            </>
+          )}
 
           <input
             type="file"

@@ -10,12 +10,11 @@ from passlib.context import CryptContext
 from psycopg2.extras import Json
 from psycopg2 import Error as PsycopgError
 
+from .config import JWT_SECRET, JWT_ALG, JWT_TTL_MINUTES
+from .collab.router import router as collab_router
+from .collab.controller import collab_controller
 
 from .db import get_connection
-
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
-JWT_ALG = "HS256"
-JWT_TTL_MINUTES = int(os.getenv("JWT_TTL_MINUTES", "1440"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -296,3 +295,163 @@ async def delete_bot(bot_id: str, user = Depends(current_user)):
         conn.close()
 
     return {"ok": True}
+
+@app.get("/api/auth/ws-token")
+async def get_ws_token(user = Depends(current_user)):
+    # Генерируем (короткоживущий) токен специально для WebSocket, потому что доступа к куки у клиента нет
+    return {"token": create_session_token(user["id"])}
+
+@app.get("/api/sessions/join/{session_id}")
+async def join_session(session_id: str, user = Depends(current_user)):
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT scenario_id FROM edit_sessions WHERE id = %s", (session_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Session not found")
+                return {"bot_id": row["scenario_id"]}
+    finally:
+        conn.close()
+
+@app.get("/api/bots/{bot_id}")
+async def get_bot(bot_id: str, user = Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, name, scenario, created_at, updated_at
+                    FROM bot_model
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (bot_id, user_id),
+                )
+                row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "scenario": row["scenario"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+@app.post("/api/sessions/create/{bot_id}")
+async def create_session(bot_id: str, user = Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                # 1. Проверяем, владелец ли это
+                cur.execute("SELECT id FROM bot_model WHERE id = %s AND user_id = %s", (bot_id, user_id))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=403, detail="Not your bot")
+
+                # 2. Удаляем старую сессию если есть
+                cur.execute("DELETE FROM edit_sessions WHERE scenario_id = %s", (bot_id,))
+                
+                # 3. Создаем новую сессию
+                session_id = str(uuid.uuid4())
+                cur.execute(
+                    """
+                    INSERT INTO edit_sessions (id, scenario_id, version) 
+                    VALUES (%s, %s, 0)
+                    RETURNING id
+                    """,
+                    (session_id, bot_id)
+                )
+                
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=500, detail="Failed to create session")
+                
+                # 4. При создании новой сессии очищаем старый лог операций этого бота!
+                cur.execute("DELETE FROM operation_log WHERE scenario_id = %s", (bot_id,))
+                
+                actual_session_id = row["id"]
+                return {"session_id": str(actual_session_id)}
+    finally:
+        conn.close()
+
+@app.get("/api/sessions/{session_id}/snapshot")
+async def get_session_snapshot(session_id: str, user = Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                # Получаем данные сессии и бота
+                cur.execute(
+                    """
+                    SELECT s.scenario_id, s.version, b.scenario, b.name, b.user_id as owner_id
+                    FROM edit_sessions s
+                    JOIN bot_model b ON s.scenario_id = b.id
+                    WHERE s.id = %s
+                    """,
+                    (session_id,)
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Session not found")
+                
+                # Получаем лог операций
+                cur.execute(
+                    "SELECT op_type, op_data FROM operation_log WHERE scenario_id = %s ORDER BY version ASC",
+                    (row["scenario_id"],)
+                )
+                ops = cur.fetchall()
+                
+                is_owner = (row["owner_id"] == user_id)
+                
+                return {
+                    "bot_id": str(row["scenario_id"]),
+                    "bot_name": row["name"],
+                    "scenario": row["scenario"],
+                    "current_version": row["version"],
+                    "is_owner": is_owner,
+                    "operations": [{"op_type": op["op_type"], "data": op["op_data"]} for op in ops]
+                }
+    finally:
+        conn.close()
+
+@app.delete("/api/sessions/{session_id}")
+async def close_session(session_id: str, user = Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                # Проверяем права (только владелец может закрыть)
+                cur.execute(
+                    """
+                    SELECT b.user_id 
+                    FROM edit_sessions s
+                    JOIN bot_model b ON s.scenario_id = b.id
+                    WHERE s.id = %s
+                    """,
+                    (session_id,)
+                )
+                row = cur.fetchone()
+                if not row or row["user_id"] != user_id:
+                    raise HTTPException(status_code=403, detail="Not authorized to close session")
+                
+                cur.execute("DELETE FROM edit_sessions WHERE id = %s", (session_id,))
+    finally:
+        conn.close()
+        
+    # Рассылаем всем сигнал о закрытии и обрываем WebSocket
+    await collab_controller.close_session(session_id)
+    return {"ok": True}
+
+app.include_router(collab_router, prefix="/api/collab")

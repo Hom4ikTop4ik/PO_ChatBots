@@ -24,7 +24,7 @@ function cloneEdge(edge) {
 export function makeOperation(type, data, baseVersion = 0) {
   return {
     op_id: crypto.randomUUID(),
-    type,
+    op_type: type,
     base_version: baseVersion,
     timestamp: new Date().toISOString(),
     data,
@@ -138,7 +138,7 @@ export function applyOperation(editorState, operation) {
     edges: (editorState?.edges || []).map(cloneEdge),
   };
 
-  switch (operation.type) {
+  switch (operation.op_type) {
     case OPERATION_TYPES.BLOCK_ADD: {
       const node = cloneNode(operation.data.node);
       const exists = current.nodes.some((n) => n.id === node.id);

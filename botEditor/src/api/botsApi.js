@@ -5,6 +5,11 @@ export function fetchBotsApi() {
   return httpRequest("/bots", { method: "GET" });
 }
 
+// GET /api/bots/:id
+export function fetchBotApi(id) {
+  return httpRequest(`/bots/${id}`, { method: "GET" });
+}
+
 // POST /api/bots
 export function createBotApi({ name, scenario }) {
   return httpRequest("/bots", {
@@ -27,4 +32,3 @@ export function deleteBotApi(id) {
     method: "DELETE",
   });
 }
-

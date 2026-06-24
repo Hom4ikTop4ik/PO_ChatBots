@@ -4,7 +4,7 @@ import { toScenario } from "../utils/scenarioUtils";
 // Импорт обновленного класса моста
 import { PreviewJSBridge } from "./JsBridge";
 
-export default function ChatPreview({ nodes, edges, open: propOpen }) {
+export default function ChatPreview({ nodes, edges, globalVariables = [], open: propOpen }) {
   // --- Состояние открытия окна ---
   const [isOpen, setIsOpen] = useState(false);
 
@@ -136,6 +136,11 @@ export default function ChatPreview({ nodes, edges, open: propOpen }) {
 
       try {
         const botModel = toScenario(nodes, edges);
+        if (globalVariables && Array.isArray(globalVariables)) {
+          botModel.GlobalVariables = globalVariables
+            .filter((v) => v && v.name && v.name.trim())
+            .map((v) => `${v.name.trim()}=${v.value || ""}`);
+        }
         const jsonModel = JSON.stringify(botModel);
         
         const mainModule = pyodideRef.current.pyimport("main_preview");
@@ -148,7 +153,7 @@ export default function ChatPreview({ nodes, edges, open: propOpen }) {
     }
 
     restartScenario();
-  }, [isOpen, nodes, edges, loading]);
+  }, [isOpen, nodes, edges, globalVariables, loading]);
 
   // --- Handlers ---
 

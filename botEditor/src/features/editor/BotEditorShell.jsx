@@ -90,7 +90,7 @@ export default function BotEditorShell() {
 
   const [botName, setBotName] = useState("Bot");
   const [botToken, setBotToken] = useState("");
-  const [globalVariables, setGlobalVariables] = useState("");
+  const [globalVariables, setGlobalVariables] = useState([]); // [{name, value}, ...]
   const [showBotSettings, setShowBotSettings] = useState(false);
 
   const [editingEdgeId, setEditingEdgeId] = useState(null);
@@ -281,9 +281,18 @@ export default function BotEditorShell() {
     setBotToken(bot.scenario.Token || "");
     setIsCurrentBotOwner(bot.is_owner !== false);
     if (bot.scenario.GlobalVariables && Array.isArray(bot.scenario.GlobalVariables)) {
-      setGlobalVariables(bot.scenario.GlobalVariables.join("\n"));
+      const parsed = bot.scenario.GlobalVariables
+        .filter((v) => v && v.trim())
+        .map((v) => {
+          const eqIndex = v.indexOf("=");
+          if (eqIndex === -1) {
+            return { name: v.trim(), value: "" };
+          }
+          return { name: v.substring(0, eqIndex).trim(), value: v.substring(eqIndex + 1).trim() };
+        });
+      setGlobalVariables(parsed);
     } else {
-      setGlobalVariables("");
+      setGlobalVariables([]);
     }
     setCurrentBotId(bot.id);
     setCollabSessionId(bot.is_owner === false || bot.session_active ? bot.id : null);
@@ -301,7 +310,7 @@ export default function BotEditorShell() {
     setSelectedNodeId(null);
     setBotName(name || "Bot");
     setBotToken("");
-    setGlobalVariables("");
+    setGlobalVariables([]);
     setCurrentBotId(null);
     setCollabSessionId(null);
     setIsCurrentBotOwner(true);
@@ -485,7 +494,9 @@ function ShellContent(props) {
       const scenario = toScenario(nodes, edges);
       scenario.BotName = botName;
       scenario.Token = botToken;
-      scenario.GlobalVariables = globalVariables.split("\n").filter((v) => v.trim());
+      scenario.GlobalVariables = globalVariables
+        .filter((v) => v && v.name && v.name.trim())
+        .map((v) => `${v.name.trim()}=${v.value || ""}`);
       const name = botName || "Новый бот";
       try {
         if (currentBotId) {
@@ -821,10 +832,11 @@ function ShellContent(props) {
 
   const extractUsedVariables = useCallback(() => {
     const vars = new Set();
-    if (globalVariables) {
-      globalVariables.split("\n").forEach((v) => {
-        const t = v.trim();
-        if (t) vars.add(t);
+    if (globalVariables && Array.isArray(globalVariables)) {
+      globalVariables.forEach((v) => {
+        if (v && v.name && v.name.trim()) {
+          vars.add(v.name.trim());
+        }
       });
     }
     nodes.forEach((node) => {
@@ -839,7 +851,9 @@ function ShellContent(props) {
     const scenario = toScenario(nodes, edges);
     scenario.BotName = botName;
     scenario.Token = botToken;
-    scenario.GlobalVariables = globalVariables.split("\n").filter((v) => v.trim());
+    scenario.GlobalVariables = globalVariables
+      .filter((v) => v && v.name && v.name.trim())
+      .map((v) => `${v.name.trim()}=${v.value || ""}`);
 
     const { valid, errors } = validateScenario(nodes, edges, scenario.GlobalVariables);
     if (!valid) {
@@ -893,7 +907,10 @@ function ShellContent(props) {
   ]);
 
   const handleValidate = useCallback(() => {
-    const vars = globalVariables.split("\n").filter((v) => v.trim());
+    // Convert [{name, value}, ...] to ["name=value", ...] for validation
+    const vars = globalVariables
+      .filter((v) => v && v.name && v.name.trim())
+      .map((v) => `${v.name.trim()}=${v.value || ""}`);
     const { valid, errors } = validateScenario(nodes, edges, vars);
     if (valid) alert("Конфигурация корректна");
     else alert("Ошибки:\n" + errors.join("\n"));
@@ -903,7 +920,9 @@ function ShellContent(props) {
     const scenario = toScenario(nodes, edges);
     scenario.BotName = botName;
     scenario.Token = botToken;
-    scenario.GlobalVariables = globalVariables.split("\n").filter((v) => v.trim());
+    scenario.GlobalVariables = globalVariables
+      .filter((v) => v && v.name && v.name.trim())
+      .map((v) => `${v.name.trim()}=${v.value || ""}`);
     const blob = new Blob([JSON.stringify(scenario, null, 2)], {
       type: "application/json",
     });
@@ -935,9 +954,18 @@ function ShellContent(props) {
     if (json.BotName) setBotName(json.BotName);
     if (json.Token) setBotToken(json.Token);
     if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
-      setGlobalVariables(json.GlobalVariables.join("\n"));
+      const parsed = json.GlobalVariables
+        .filter((v) => v && v.trim())
+        .map((v) => {
+          const eqIndex = v.indexOf("=");
+          if (eqIndex === -1) {
+            return { name: v.trim(), value: "" };
+          }
+          return { name: v.substring(0, eqIndex).trim(), value: v.substring(eqIndex + 1).trim() };
+        });
+      setGlobalVariables(parsed);
     } else {
-      setGlobalVariables("");
+      setGlobalVariables([]);
     }
   }, [setSelectedNodeId, setBotName, setBotToken, setGlobalVariables]);
 
@@ -1292,7 +1320,7 @@ function ShellContent(props) {
 
       {showBotSettings && (
         <div className="modal-overlay" onClick={() => setShowBotSettings(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
             <div className="modal-header">
               <strong>Глобальные параметры</strong>
               <button onClick={() => setShowBotSettings(false)}>Закрыть</button>
@@ -1317,13 +1345,57 @@ function ShellContent(props) {
             </label>
 
             <label>
-              <strong>Глобальные переменные (одна в строке)</strong>
-              <textarea
-                rows="5"
-                value={globalVariables}
-                onChange={(e) => setGlobalVariables(e.target.value)}
-                placeholder="var1&#10;var2&#10;user_name"
-              />
+              <strong>Глобальные переменные</strong>
+              <div style={{ marginTop: 8 }}>
+                {globalVariables && globalVariables.length > 0 ? (
+                  globalVariables.map((v, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                      <input
+                        type="text"
+                        placeholder="Имя"
+                        value={v.name || ""}
+                        onChange={(e) => {
+                          const updated = [...globalVariables];
+                          updated[idx] = { ...updated[idx], name: e.target.value };
+                          setGlobalVariables(updated);
+                        }}
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                      <span>=</span>
+                      <input
+                        type="text"
+                        placeholder="Значение"
+                        value={v.value || ""}
+                        onChange={(e) => {
+                          const updated = [...globalVariables];
+                          updated[idx] = { ...updated[idx], value: e.target.value };
+                          setGlobalVariables(updated);
+                        }}
+                        style={{ flex: 2, minWidth: 0 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const updated = globalVariables.filter((_, i) => i !== idx);
+                          setGlobalVariables(updated);
+                        }}
+                        style={{ padding: "4px 8px", background: "#d32f2f", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ color: "#777", fontStyle: "italic", marginBottom: 8 }}>Нет переменных</div>
+                )}
+                <button
+                  onClick={() => {
+                    setGlobalVariables([...(globalVariables || []), { name: "", value: "" }]);
+                  }}
+                  style={{ marginTop: 8, width: "100%" }}
+                >
+                  + Добавить переменную
+                </button>
+              </div>
             </label>
           </div>
         </div>
@@ -1332,7 +1404,7 @@ function ShellContent(props) {
       <ChatPreview
         nodes={nodes}
         edges={edges}
-        globalVariables={globalVariables.split("\n").filter((v) => v.trim())}
+        globalVariables={globalVariables && Array.isArray(globalVariables) ? globalVariables.filter((v) => v && v.name && v.name.trim()).map((v) => `${v.name.trim()}=${v.value || ""}`) : []}
       />
     </div>
   );

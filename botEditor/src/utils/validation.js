@@ -15,15 +15,32 @@ function parseVariablesFromExpression(expr) {
 }
 
 
-// TODO: проверять что переменные имеют уникальные имена
 // TODO: проверять что URL валиден
 // TODO: проверять что используемые переменные определены в момент исполнения блока
 export function validateScenario(nodes, edges, globalVars) {
   const errors = [];
   const definedVars = new Set();
+  const globalVarNames = new Set();
+
   (globalVars || []).forEach((v) => {
     const trimmed = v && v.trim();
-    if (trimmed) definedVars.add(trimmed);
+    if (trimmed) {
+      const eqIndex = trimmed.indexOf("=");
+      let varName;
+      if (eqIndex === -1) {
+        varName = trimmed;
+      } else {
+        varName = trimmed.substring(0, eqIndex).trim();
+      }
+      if (varName) {
+        if (globalVarNames.has(varName)) {
+          errors.push(`Глобальная переменная "${varName}" определена несколько раз`);
+        } else {
+          globalVarNames.add(varName);
+        }
+        definedVars.add(varName);
+      }
+    }
   });
   nodes.forEach((node) => {
     if (node.type === "input" && node.data.variableName) {

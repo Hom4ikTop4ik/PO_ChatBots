@@ -233,10 +233,19 @@ body,
   padding: 8px 12px;
   border-radius: 8px;
   border: 2px solid #ddd;
-  background: white;
   font-size: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: all 0.2s ease;
+}
+
+.node:not(.start):not(.final):not(.message):not(.input):not(.condition):not(.choice):not(.api) {
+  background: white;
+}
+
+.react-flow__node {
+  border: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
 }
 
 .node:hover {

@@ -89,7 +89,6 @@ export default function BotEditorShell() {
   const [showInspectorModal, setShowInspectorModal] = useState(false);
 
   const [botName, setBotName] = useState("Bot");
-  const [botToken, setBotToken] = useState("");
   const [globalVariables, setGlobalVariables] = useState([]); // [{name, value}, ...]
   const [showBotSettings, setShowBotSettings] = useState(false);
 
@@ -278,7 +277,6 @@ export default function BotEditorShell() {
     setRedoStack([]);
     setSelectedNodeId(null);
     setBotName(bot.scenario.BotName || bot.name);
-    setBotToken(bot.scenario.Token || "");
     setIsCurrentBotOwner(bot.is_owner !== false);
     if (bot.scenario.GlobalVariables && Array.isArray(bot.scenario.GlobalVariables)) {
       const parsed = bot.scenario.GlobalVariables
@@ -309,7 +307,6 @@ export default function BotEditorShell() {
     setRedoStack([]);
     setSelectedNodeId(null);
     setBotName(name || "Bot");
-    setBotToken("");
     setGlobalVariables([]);
     setCurrentBotId(null);
     setCollabSessionId(null);
@@ -406,8 +403,6 @@ export default function BotEditorShell() {
           setEditingEdgeId={setEditingEdgeId}
           botName={botName}
           setBotName={setBotName}
-          botToken={botToken}
-          setBotToken={setBotToken}
           globalVariables={globalVariables}
           setGlobalVariables={setGlobalVariables}
           showBotSettings={showBotSettings}
@@ -455,8 +450,6 @@ function ShellContent(props) {
     setEditingEdgeId,
     botName,
     setBotName,
-    botToken,
-    setBotToken,
     globalVariables,
     setGlobalVariables,
     showBotSettings,
@@ -493,7 +486,6 @@ function ShellContent(props) {
       if (!nodes.length && !currentBotId) return;
       const scenario = toScenario(nodes, edges);
       scenario.BotName = botName;
-      scenario.Token = botToken;
       scenario.GlobalVariables = globalVariables
         .filter((v) => v && v.name && v.name.trim())
         .map((v) => `${v.name.trim()}=${v.value || ""}`);
@@ -513,7 +505,7 @@ function ShellContent(props) {
     }, 2000);
     return () => clearTimeout(autoSaveTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, botName, botToken, globalVariables, collab.enabled]);
+  }, [nodes, edges, botName, globalVariables, collab.enabled]);
 
   const getCurrentVersion = useCallback(
     () => scenarioVersionRef.current,
@@ -850,7 +842,6 @@ function ShellContent(props) {
   const saveCurrentBot = useCallback(async () => {
     const scenario = toScenario(nodes, edges);
     scenario.BotName = botName;
-    scenario.Token = botToken;
     scenario.GlobalVariables = globalVariables
       .filter((v) => v && v.name && v.name.trim())
       .map((v) => `${v.name.trim()}=${v.value || ""}`);
@@ -895,7 +886,6 @@ function ShellContent(props) {
     nodes,
     edges,
     botName,
-    botToken,
     globalVariables,
     bots,
     setBots,
@@ -919,7 +909,6 @@ function ShellContent(props) {
   const handleExportScenario = useCallback(() => {
     const scenario = toScenario(nodes, edges);
     scenario.BotName = botName;
-    scenario.Token = botToken;
     scenario.GlobalVariables = globalVariables
       .filter((v) => v && v.name && v.name.trim())
       .map((v) => `${v.name.trim()}=${v.value || ""}`);
@@ -932,7 +921,7 @@ function ShellContent(props) {
     a.download = `${scenario.BotName || "bot"}-bot-scenario.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [nodes, edges, botName, botToken, globalVariables]);
+  }, [nodes, edges, botName, globalVariables]);
 
   const handleImportClick = useCallback(() => {
     if (collab.enabled && collab.participants.length > 1) {
@@ -952,7 +941,6 @@ function ShellContent(props) {
   const applyImportMetadata = useCallback((json) => {
     setSelectedNodeId(null);
     if (json.BotName) setBotName(json.BotName);
-    if (json.Token) setBotToken(json.Token);
     if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
       const parsed = json.GlobalVariables
         .filter((v) => v && v.trim())
@@ -967,7 +955,7 @@ function ShellContent(props) {
     } else {
       setGlobalVariables([]);
     }
-  }, [setSelectedNodeId, setBotName, setBotToken, setGlobalVariables]);
+  }, [setSelectedNodeId, setBotName, setGlobalVariables]);
 
   const handleFileChange = useCallback((event) => {
     const file = event.target.files?.[0];
@@ -1332,15 +1320,6 @@ function ShellContent(props) {
                 type="text"
                 value={botName}
                 onChange={(e) => setBotName(e.target.value)}
-              />
-            </label>
-
-            <label>
-              <strong>Токен</strong>
-              <textarea
-                rows="3"
-                value={botToken}
-                onChange={(e) => setBotToken(e.target.value)}
               />
             </label>
 

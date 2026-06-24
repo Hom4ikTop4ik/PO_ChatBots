@@ -164,7 +164,6 @@ export function toScenario(nodes, edges) {
   const finalNode = nodes.find((n) => n.type === "final");
   return {
     BotName: "Bot",
-    Token: "",
     Start: startNode ? startNode.id : "",
     Final: finalNode ? finalNode.id : "",
     Blocks: blocks,

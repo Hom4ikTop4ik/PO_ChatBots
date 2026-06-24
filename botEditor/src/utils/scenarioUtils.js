@@ -144,8 +144,10 @@ export function toScenario(nodes, edges) {
         params.method = node.data.method || "GET";
         params.headers = node.data.headers || {};
         params.body = node.data.body || "";
-        params.resultVariable = node.data.resultVariable || "";
         params.retryCount = node.data.retryCount || 0;
+        if (node.data.variables) {
+          params.variables = node.data.variables;
+        }
         break;
       default:
         break;

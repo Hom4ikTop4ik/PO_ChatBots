@@ -36,6 +36,13 @@ class TelegramAPI(BotAPI):
 
     async def run(self):
         logger.info("Starting Telegram Polling...")
+
+        try:
+            await self.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook deleted successfully")
+        except Exception as e:
+            logger.warning(f"Failed to delete webhook: {e}")
+        
         await self.dp.start_polling(self.bot)
 
     # --- Implementation of BotAPI (Methods called by Interpreter) ---

@@ -27,6 +27,8 @@ class BotInterpreter:
         # Глобальные переменные (конфигурация)
         self.global_vars = {v["name"]: v.get("default", "") for v in self.model.get("GlobalVariables", [])}
 
+        print(self.global_vars)
+
         self.block_handlers = {
             "start": self._handle_start_block,
             "sendMessage": self._handle_send_message_block,

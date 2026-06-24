@@ -145,13 +145,19 @@ class BotConfigParser:
         if not isinstance(config["Blocks"], list):
             raise ValidationError("Blocks должен быть массивом", "Blocks")
     
-    def _parse_global_variables(self, global_vars: List[Dict]) -> List[Dict]:
+    def _parse_global_variables(self, global_vars) -> List[Dict]:
         """Парсинг и валидация глобальных переменных"""
         parsed_vars = []
         seen_names = set()
         
-        for i, var in enumerate(global_vars):
+        for i, var_iter in enumerate(global_vars):
             try:
+                var_tmp = var_iter.split("=")
+                var = {}
+                var["name"] = var_tmp[0]
+                var["type"] = "string"
+                var["default"] = var_tmp[1]
+
                 # Проверка обязательных полей
                 if "name" not in var:
                     raise ValidationError("Отсутствует поле 'name'", f"GlobalVariables[{i}]")

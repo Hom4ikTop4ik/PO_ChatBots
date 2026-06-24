@@ -10,6 +10,7 @@ class BlockType(Enum):
     GET_MESSAGE = "getMessage"
     CHOICE = "choice"
     FINAL = "final"
+    API = "api"
 
 class ValidationError(Exception):
     """Кастомное исключение для ошибок валидации"""
@@ -45,6 +46,7 @@ class BotConfigParser:
             BlockType.GET_MESSAGE: self._parse_get_message_params,
             BlockType.CHOICE: self._parse_choice_params,
             BlockType.FINAL: self._parse_final_params,
+            BlockType.API: self._parse_api_params,
         }
         
         # Регистр валидаторов соединений для каждого типа блока
@@ -54,6 +56,7 @@ class BotConfigParser:
             BlockType.GET_MESSAGE: self._validate_message_connections,
             BlockType.CHOICE: self._validate_choice_connections,
             BlockType.FINAL: self._validate_final_connections,
+            BlockType.API: self._validate_api_connections,
         }
         
         # Допустимые типы для глобальных переменных
@@ -402,6 +405,90 @@ class BotConfigParser:
         if params:
             raise ValidationError("Params должен быть пустым объектом", "Params", block_id, BlockType.FINAL.value)
         return {}
+
+    def _parse_api_params(self, params: Dict, block_id: str) -> Dict:
+        """Парсинг параметров блока api"""
+        required_fields = ["url", "method"]
+        for field in required_fields:
+            if field not in params:
+                raise ValidationError(
+                    f"Отсутствует обязательное поле '{field}'", 
+                    f"Params.{field}", 
+                    block_id, 
+                    BlockType.API.value
+                )
+        
+        if not isinstance(params["url"], str):
+            raise ValidationError(
+                "Поле 'url' должно быть строкой", 
+                "Params.url", 
+                block_id, 
+                BlockType.API.value
+            )
+        
+        if not isinstance(params["method"], str):
+            raise ValidationError(
+                "Поле 'method' должно быть строкой", 
+                "Params.method", 
+                block_id, 
+                BlockType.API.value
+            )
+        
+        # Валидация метода
+        allowed_methods = ["GET", "POST", "PUT", "DELETE"]
+        if params["method"].upper() not in allowed_methods:
+            raise ValidationError(
+                f"Недопустимый метод '{params['method']}'. Допустимые: {', '.join(allowed_methods)}",
+                "Params.method", block_id, BlockType.API.value
+            )
+        
+        result = {
+            "url": params["url"],
+            "method": params["method"].upper()
+        }
+        
+        # Опциональные поля
+        if "headers" in params:
+            if not isinstance(params["headers"], dict):
+                raise ValidationError(
+                    "Поле 'headers' должно быть объектом JSON",
+                    "Params.headers", block_id, BlockType.API.value
+                )
+            result["headers"] = params["headers"]
+        
+        if "body" in params:
+            if not isinstance(params["body"], (dict, str)):
+                raise ValidationError(
+                    "Поле 'body' должно быть объектом JSON или строкой",
+                    "Params.body", block_id, BlockType.API.value
+                )
+            result["body"] = params["body"]
+        
+        if "variables" in params:
+            if not isinstance(params["variables"], dict):
+                raise ValidationError(
+                    "Поле 'variables' должно быть объектом JSON",
+                    "Params.variables", block_id, BlockType.API.value
+                )
+            result["variables"] = params["variables"]
+        
+        if "resultVariable" in params:
+            if not isinstance(params["resultVariable"], str):
+                raise ValidationError(
+                    "Поле 'resultVariable' должно быть строкой",
+                    "Params.resultVariable", block_id, BlockType.API.value
+                )
+            result["resultVariable"] = params["resultVariable"]
+        
+        if "retryCount" in params:
+            if not isinstance(params["retryCount"], int) or params["retryCount"] < 0:
+                raise ValidationError(
+                    "Поле 'retryCount' должно быть неотрицательным целым числом",
+                    "Params.retryCount", block_id, BlockType.API.value
+                )
+            result["retryCount"] = params["retryCount"]
+        
+        return result
     
     # endregion
     
@@ -463,6 +550,51 @@ class BotConfigParser:
             if not self._is_valid_uuid(conn):
                 raise ValidationError(f"Некорректный UUID в In[{i}]", f"Connections.In[{i}]", block_id, BlockType.FINAL.value)
     
+    def _validate_api_connections(self, connections: Dict, block_id: str):
+        """Валидация соединений блока api"""
+        if not isinstance(connections["In"], list) or len(connections["In"]) < 1:
+            raise ValidationError(
+                "In должен содержать минимум 1 элемент", 
+                "Connections.In", 
+                block_id, 
+                BlockType.API.value
+            )
+        
+        if not isinstance(connections["Out"], list) or len(connections["Out"]) < 1:
+            raise ValidationError(
+                "Out должен содержать минимум 1 элемент", 
+                "Connections.Out", 
+                block_id, 
+                BlockType.API.value
+            )
+        
+        # Валидация UUID в In
+        for i, conn in enumerate(connections["In"]):
+            if not self._is_valid_uuid(conn):
+                raise ValidationError(
+                    f"Некорректный UUID в In[{i}]", 
+                    f"Connections.In[{i}]", 
+                    block_id, 
+                    BlockType.API.value
+                )
+        
+        # Валидация UUID в Out
+        for i, conn in enumerate(connections["Out"]):
+            if not self._is_valid_uuid(conn):
+                raise ValidationError(
+                    f"Некорректный UUID в Out[{i}]", 
+                    f"Connections.Out[{i}]", 
+                    block_id, 
+                    BlockType.API.value
+                )
+        
+        # Проверка количества выходов (максимум 2: success, fail)
+        if len(connections["Out"]) > 2:
+            raise ValidationError(
+                f"API блок может иметь максимум 2 выхода (success и fail), но найдено {len(connections['Out'])}",
+                "Connections.Out", block_id, BlockType.API.value
+            )
+
     # endregion
     
     def _validate_graph_integrity(self, blocks_map: Dict[str, Dict], start_id: str, final_id: str):

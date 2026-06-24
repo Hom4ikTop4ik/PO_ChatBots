@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import { LockableField } from "../../features/collaboration";
 import { useState } from "react";  // ← Важно: импорт useState!
 
-export default function ApiInspector({ node, updateNodeData }) {
+export default function ApiInspector({ node, updateNodeData, usedVars }) {
   const data = node.data;
   
   // Состояние для JSON редактора
@@ -149,6 +149,20 @@ export default function ApiInspector({ node, updateNodeData }) {
           }
         />
       </label>
+
+      {usedVars && usedVars.length > 0 && (
+        <div className="variable-suggestions">
+          <strong>Доступные переменные:</strong>
+          <div className="variable-list">
+            {usedVars
+              .map((v, i) => <span key={i}>${"{" + v + "}"}</span>)
+              .reduce(
+                (acc, el, i) => (i === 0 ? [el] : [...acc, ", ", el]),
+                []
+              )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,4 +173,5 @@ ApiInspector.propTypes = {
     data: PropTypes.object.isRequired,
   }).isRequired,
   updateNodeData: PropTypes.func.isRequired,
+  usedVars: PropTypes.array,
 };

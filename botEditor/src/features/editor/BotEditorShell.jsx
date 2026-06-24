@@ -835,6 +835,14 @@ function ShellContent(props) {
       if (node.type === "input" && node.data.variableName) {
         vars.add(node.data.variableName);
       }
+        if (node.type === "api" && node.data.variables) {
+        const variables = node.data.variables;
+        Object.values(variables).forEach((varName) => {
+          if (varName && typeof varName === 'string' && varName.trim()) {
+            vars.add(varName.trim());
+          }
+        });
+      }
     });
     return Array.from(vars).sort();
   }, [nodes, globalVariables]);
@@ -1020,7 +1028,7 @@ function ShellContent(props) {
       case "choice":
         return <ChoiceInspector node={node} updateNodeData={updateNodeData} usedVars={usedVars} />;
       case "api":
-        return <ApiInspector node={node} updateNodeData={updateNodeData} />;
+        return <ApiInspector node={node} updateNodeData={updateNodeData} usedVars={usedVars} />;
       default:
         return <DefaultInspector />;
     }

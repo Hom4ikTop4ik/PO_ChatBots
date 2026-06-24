@@ -87,7 +87,7 @@ export function fromScenario(scenario) {
         data.method = block.Params?.method || "GET";
         data.headers = block.Params?.headers || {};
         data.body = block.Params?.body || "";
-        data.resultVariable = block.Params?.resultVariable || "";
+        data.variables = block.Params?.variables || "";
         data.retryCount = block.Params?.retryCount || 0;
         break;
       default:

@@ -27,6 +27,7 @@ export default function Canvas({
   onEdgesDelete,
   dispatchOperation,
   getCurrentVersion,
+  onPaneClick,
   editingEdgeId,
   setEditingEdgeId,
 }) {
@@ -115,6 +116,7 @@ export default function Canvas({
           onEdgeDoubleClick={onEdgeDoubleClick}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
+          onPaneClick={onPaneClick}
           onInit={(instance) => {
             reactFlowInstance.current = instance;
           }}

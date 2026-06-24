@@ -626,6 +626,15 @@ function ShellContent(props) {
     [dispatchOperation, getCurrentVersion]
   );
 
+  const onPaneClick = useCallback(() => {
+    if (!collab.enabled) return;
+    Object.keys(dragStartPosRef.current).forEach((blockId) => {
+      collab.releaseLock(blockId, "position");
+      delete dragStartPosRef.current[blockId];
+    });
+    collab.updatePresence({ dragging_block: null });
+  }, [collab, dragStartPosRef]);
+
   const onNodesChange = useCallback(
     (changes) => {
       const nonRemoveChanges = changes.filter((c) => c.type !== "remove");
@@ -1228,6 +1237,7 @@ function ShellContent(props) {
           onEdgesDelete={onEdgesDelete}
           dispatchOperation={dispatchOperation}
           getCurrentVersion={getCurrentVersion}
+          onPaneClick={onPaneClick}
           editingEdgeId={editingEdgeId}
           setEditingEdgeId={setEditingEdgeId}
         />

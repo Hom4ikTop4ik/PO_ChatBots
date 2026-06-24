@@ -16,7 +16,7 @@ from .db import get_connection
 log = logging.getLogger("collaboration")
 
 LOCK_TTL_SECONDS = 30
-DISCONNECT_GRACE_SECONDS = 60
+DISCONNECT_GRACE_SECONDS = 10
 SNAPSHOT_THRESHOLD = 500
 PARTICIPANT_COLORS = [
     "#E91E63", "#9C27B0", "#3F51B5", "#03A9F4",
@@ -29,9 +29,10 @@ def color_for_user(user_id: int) -> str:
     return PARTICIPANT_COLORS[user_id % len(PARTICIPANT_COLORS)]
 
 class Participant:
-    def __init__(self, user_id: int, display_name: str):
+    def __init__(self, user_id: int, display_name: str, email: str = ""):
         self.user_id = user_id
         self.display_name = display_name
+        self.email = email
         self.color = color_for_user(user_id)
         self.status = "active"  # active | disconnected
 
@@ -39,6 +40,7 @@ class Participant:
         return {
             "user_id": self.user_id,
             "display_name": self.display_name,
+            "email": self.email,
             "color": self.color,
             "status": self.status,
         }
@@ -93,6 +95,8 @@ class EditSession:
         self.op_buffer: List[Dict[str, Any]] = []
         self.locks: Dict[Tuple[str, str], FieldLock] = {}
         self.disconnect_timers: Dict[int, asyncio.Task] = {}
+        self.pending_replace: Optional[Dict[str, Any]] = None
+        self.replace_timer: Optional[asyncio.Task] = None
         self.lock = asyncio.Lock()
 
     def participants_payload(self) -> List[Dict[str, Any]]:
@@ -206,7 +210,7 @@ def _load_bot_record(scenario_id: str) -> Optional[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, name, scenario, version FROM bot_model WHERE id = %s",
+                "SELECT id, user_id, name, scenario, version FROM bot_model WHERE id = %s",
                 (scenario_id,),
             )
             row = cur.fetchone()
@@ -444,7 +448,7 @@ class CollaborationHub:
             if participant is None:
                 email = _load_user_email(user_id)
                 display_name = email.split("@")[0] if email else f"user{user_id}"
-                participant = Participant(user_id, display_name)
+                participant = Participant(user_id, display_name, email)
                 session.participants[user_id] = participant
                 session.presence[user_id] = PresenceState(user_id)
             else:
@@ -476,12 +480,10 @@ class CollaborationHub:
         except asyncio.CancelledError:
             return
         async with session.lock:
-            p = session.participants.get(user_id)
-            if not p:
-                return
             if user_id in session.connections:
                 return
-            p.status = "disconnected"
+            session.participants.pop(user_id, None)
+            session.presence.pop(user_id, None)
             keys_to_drop = [k for k, fl in session.locks.items() if fl.locked_by == user_id]
             for k in keys_to_drop:
                 session.locks.pop(k, None)
@@ -563,6 +565,120 @@ class CollaborationHub:
                     session.locks.pop(k, None)
             return removed
 
+    async def request_replace(self, session: EditSession, user_id: int,
+                              proposed_state: Dict[str, Any]) -> str:
+        bot = _load_bot_record(session.scenario_id)
+        owner_id = bot["user_id"] if bot else None
+        if owner_id and owner_id != user_id and owner_id not in session.connections:
+            return "owner_absent"
+
+        async with session.lock:
+            others = [uid for uid, p in session.participants.items()
+                      if uid != user_id and p.status == "active" and uid in session.connections]
+            if session.pending_replace:
+                return "busy"
+            if not others:
+                return "direct"
+            requester = session.participants.get(user_id)
+            requester_name = requester.display_name if requester else f"user{user_id}"
+            session.pending_replace = {
+                "requester_id": user_id,
+                "state": proposed_state,
+                "votes": {},
+                "required": set(others),
+                "requester_name": requester_name,
+            }
+            if session.replace_timer:
+                session.replace_timer.cancel()
+            session.replace_timer = asyncio.create_task(
+                self._replace_timeout(session, user_id)
+            )
+        for uid in others:
+            ws = session.connections.get(uid)
+            if ws:
+                try:
+                    await ws.send_json({
+                        "type": "replace_vote_request",
+                        "requester_id": user_id,
+                        "requester_name": requester_name,
+                    })
+                except Exception:
+                    pass
+        ws = session.connections.get(user_id)
+        if ws:
+            try:
+                await ws.send_json({"type": "replace_pending", "waiting_for": len(others)})
+            except Exception:
+                pass
+        return "pending"
+
+    async def _replace_timeout(self, session: EditSession, requester_id: int) -> None:
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            return
+        async with session.lock:
+            if not session.pending_replace or session.pending_replace.get("requester_id") != requester_id:
+                return
+            session.pending_replace = None
+        ws = session.connections.get(requester_id)
+        if ws:
+            try:
+                await ws.send_json({"type": "replace_rejected", "reason": "timeout"})
+            except Exception:
+                pass
+        await self._broadcast(session, {"type": "replace_cancelled"}, exclude_user=requester_id)
+
+    async def vote_replace(self, session: EditSession, user_id: int, approved: bool) -> None:
+        apply_args = None
+        reject_args = None
+        async with session.lock:
+            if not session.pending_replace:
+                return
+            pending = session.pending_replace
+            if user_id not in pending["required"]:
+                return
+            pending["votes"][user_id] = approved
+            if not approved:
+                requester_id = pending["requester_id"]
+                rejector = session.participants.get(user_id)
+                rejector_name = rejector.display_name if rejector else f"user{user_id}"
+                session.pending_replace = None
+                if session.replace_timer:
+                    session.replace_timer.cancel()
+                reject_args = (requester_id, rejector_name)
+            elif all(pending["votes"].get(uid, False) for uid in pending["required"]):
+                apply_args = (pending["requester_id"], pending["state"])
+                session.pending_replace = None
+                if session.replace_timer:
+                    session.replace_timer.cancel()
+
+        if reject_args:
+            requester_id, rejector_name = reject_args
+            ws = session.connections.get(requester_id)
+            if ws:
+                try:
+                    await ws.send_json({"type": "replace_rejected", "reason": "rejected", "by": rejector_name})
+                except Exception:
+                    pass
+            await self._broadcast(session, {"type": "replace_cancelled"}, exclude_user=requester_id)
+
+        elif apply_args:
+            requester_id, proposed_state = apply_args
+            msg = {
+                "op_id": str(uuid.uuid4()),
+                "op_type": "SCENARIO_REPLACE",
+                "base_version": session.version,
+                "data": proposed_state,
+            }
+            result, persisted, new_version = await self.handle_op(session, requester_id, msg)
+            if result == "accepted":
+                await self._broadcast(session, {
+                    "type": "replace_applied",
+                    "op": persisted,
+                    "applied_version": new_version,
+                })
+
     async def _broadcast(self, session: EditSession, message: Dict[str, Any],
                          exclude_user: Optional[int] = None) -> None:
         dead: List[int] = []
@@ -600,21 +716,26 @@ async def collab_websocket(websocket: WebSocket, scenario_id: str):
     await websocket.accept()
     participant = await HUB.add_participant(session, user_id, websocket)
 
-    await websocket.send_json({
-        "type": "snapshot",
-        "scenario_id": scenario_id,
-        "version": session.version,
-        "state": session.state,
-        "you": participant.to_dict(),
-        "participants": session.participants_payload(),
-        "locks": [fl.to_dict() for fl in session.locks.values()],
-    })
-
-    await HUB._broadcast(session, {
-        "type": "presence_update",
-        "participants": session.participants_payload(),
-        "locks": [fl.to_dict() for fl in session.locks.values()],
-    }, exclude_user=user_id)
+    try:
+        await websocket.send_json({
+            "type": "snapshot",
+            "scenario_id": scenario_id,
+            "version": session.version,
+            "state": session.state,
+            "you": participant.to_dict(),
+            "participants": session.participants_payload(),
+            "locks": [fl.to_dict() for fl in session.locks.values()],
+        })
+        await HUB._broadcast(session, {
+            "type": "presence_update",
+            "participants": session.participants_payload(),
+            "locks": [fl.to_dict() for fl in session.locks.values()],
+        }, exclude_user=user_id)
+    except (WebSocketDisconnect, Exception):
+        session.connections.pop(user_id, None)
+        timer = asyncio.create_task(HUB.remove_participant_after_grace(session, user_id))
+        session.disconnect_timers[user_id] = timer
+        return
 
     try:
         while True:
@@ -630,6 +751,13 @@ async def collab_websocket(websocket: WebSocket, scenario_id: str):
         log.exception("websocket error")
     finally:
         session.connections.pop(user_id, None)
+        async with session.lock:
+            p = session.participants.get(user_id)
+            if p:
+                p.status = "disconnected"
+            keys_to_drop = [k for k, fl in session.locks.items() if fl.locked_by == user_id]
+            for k in keys_to_drop:
+                session.locks.pop(k, None)
         timer = asyncio.create_task(HUB.remove_participant_after_grace(session, user_id))
         session.disconnect_timers[user_id] = timer
         await HUB._broadcast(session, {
@@ -697,6 +825,7 @@ async def _dispatch_client_message(session: EditSession, user_id: int,
                 "type": "lock_granted",
                 "block_id": block_id,
                 "field_name": field_name,
+                "locked_by": user_id,
             })
             await HUB._broadcast(session, {
                 "type": "lock_broadcast",
@@ -738,3 +867,34 @@ async def _dispatch_client_message(session: EditSession, user_id: int,
         else:
             ops = _load_ops_after(session.scenario_id, client_version)
             await ws.send_json({"type": "ops_replay", "ops": ops})
+
+    elif mtype == "replace_request":
+        proposed_state = msg.get("state", {})
+        result = await HUB.request_replace(session, user_id, proposed_state)
+        if result == "direct":
+            synthetic = {
+                "op_id": str(uuid.uuid4()),
+                "op_type": "SCENARIO_REPLACE",
+                "base_version": session.version,
+                "data": proposed_state,
+            }
+            op_result, persisted, new_version = await HUB.handle_op(session, user_id, synthetic)
+            if op_result == "accepted":
+                ws = session.connections.get(user_id)
+                if ws:
+                    try:
+                        await ws.send_json({"type": "replace_applied", "op": persisted, "applied_version": new_version})
+                    except Exception:
+                        pass
+                await HUB._broadcast(session, {"type": "replace_applied", "op": persisted, "applied_version": new_version}, exclude_user=user_id)
+        elif result in ("busy", "owner_absent"):
+            ws = session.connections.get(user_id)
+            if ws:
+                try:
+                    await ws.send_json({"type": "replace_rejected", "reason": result})
+                except Exception:
+                    pass
+
+    elif mtype == "replace_vote":
+        approved = bool(msg.get("approved"))
+        await HUB.vote_replace(session, user_id, approved)

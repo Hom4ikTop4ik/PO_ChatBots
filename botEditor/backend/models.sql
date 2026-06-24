@@ -24,8 +24,16 @@ CREATE TABLE IF NOT EXISTS edit_sessions (
     id          UUID PRIMARY KEY,
     scenario_id UUID NOT NULL REFERENCES bot_model(id) ON DELETE CASCADE,
     version     INTEGER NOT NULL DEFAULT 0,
+    shared      BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(scenario_id)
+);
+
+CREATE TABLE IF NOT EXISTS bot_access (
+    user_id   INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    bot_id    UUID    NOT NULL REFERENCES bot_model(id) ON DELETE CASCADE,
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, bot_id)
 );
 
 CREATE TABLE IF NOT EXISTS operation_log (

@@ -1,10 +1,20 @@
 
-import React, { useEffect, useRef } from "react";
+import React, { Fragment, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { useReactFlow } from "reactflow";
 import { useCollaboration } from "./CollaborationContext";
 
-export default function PresenceLayer({ wrapperRef }) {
+const NODE_TYPE_STYLE = {
+  start:     { background: "#e8f5e9", border: "#4caf50", borderRadius: 24 },
+  final:     { background: "#fce4ec", border: "#e91e63", borderRadius: 24 },
+  message:   { background: "#e3f2fd", border: "#1976d2", borderRadius: 8 },
+  input:     { background: "#f3e5f5", border: "#7b1fa2", borderRadius: 8 },
+  condition: { background: "#fff8e1", border: "#f57c00", borderRadius: 8 },
+  choice:    { background: "#e0f7fa", border: "#0097a7", borderRadius: 8 },
+  api:       { background: "#fbe9e7", border: "#bf360c", borderRadius: 8 },
+};
+
+export default function PresenceLayer({ wrapperRef, nodes = [] }) {
   const collab = useCollaboration();
   const reactFlow = useReactFlow();
   const lastSentCursorRef = useRef(0);
@@ -53,12 +63,10 @@ export default function PresenceLayer({ wrapperRef }) {
         const participant = collab.getParticipant(p.user_id);
         if (!participant) return null;
         return (
-          <RemoteCursor
-            key={p.user_id}
-            presence={p}
-            participant={participant}
-            reactFlow={reactFlow}
-          />
+          <Fragment key={p.user_id}>
+            <GhostBlock presence={p} participant={participant} reactFlow={reactFlow} nodes={nodes} />
+            <RemoteCursor presence={p} participant={participant} reactFlow={reactFlow} />
+          </Fragment>
         );
       })}
     </div>
@@ -67,6 +75,7 @@ export default function PresenceLayer({ wrapperRef }) {
 
 PresenceLayer.propTypes = {
   wrapperRef: PropTypes.shape({ current: PropTypes.any }),
+  nodes: PropTypes.array,
 };
 
 function RemoteCursor({ presence, participant, reactFlow }) {
@@ -125,4 +134,62 @@ RemoteCursor.propTypes = {
   presence: PropTypes.object.isRequired,
   participant: PropTypes.object.isRequired,
   reactFlow: PropTypes.object.isRequired,
+};
+
+function GhostBlock({ presence, participant, reactFlow, nodes }) {
+  if (!presence.dragging_block) return null;
+  const { block_id, x, y } = presence.dragging_block;
+
+  let screen;
+  try {
+    screen = reactFlow.flowToScreenPosition({ x, y });
+  } catch {
+    return null;
+  }
+
+  const node = nodes.find((n) => n.id === block_id);
+  const typeStyle = NODE_TYPE_STYLE[node?.type] || { background: "#f5f5f5", border: "#999", borderRadius: 8 };
+  const label = node?.data?.label || node?.type || "";
+  const width = node?.width || 180;
+  const height = node?.height || 56;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: screen.x,
+        top: screen.y,
+        width,
+        height,
+        background: typeStyle.background,
+        border: `2px dashed ${typeStyle.border}`,
+        borderRadius: typeStyle.borderRadius,
+        opacity: 0.7,
+        pointerEvents: "none",
+        zIndex: 9,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        boxSizing: "border-box",
+        gap: 2,
+      }}
+    >
+      {label && (
+        <span style={{ fontSize: 11, color: typeStyle.border, fontWeight: 600, maxWidth: width - 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label}
+        </span>
+      )}
+      <span style={{ fontSize: 10, color: participant.color, fontWeight: 700 }}>
+        {participant.display_name}
+      </span>
+    </div>
+  );
+}
+
+GhostBlock.propTypes = {
+  presence: PropTypes.object.isRequired,
+  participant: PropTypes.object.isRequired,
+  reactFlow: PropTypes.object.isRequired,
+  nodes: PropTypes.array,
 };

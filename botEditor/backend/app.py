@@ -149,7 +149,7 @@ async def logout(response: Response):
     return {"ok": True}
 
 
-def _bot_to_dict(row):
+def _bot_to_dict(row, *, is_owner=True, session_active=False):
     return {
         "id": str(row["id"]),
         "name": row["name"],
@@ -157,6 +157,9 @@ def _bot_to_dict(row):
         "version": int(row.get("version", 0) or 0),
         "created_at": row["created_at"].isoformat(),
         "updated_at": row["updated_at"].isoformat(),
+        "is_owner": bool(row.get("is_owner", is_owner)),
+        "session_active": bool(row.get("session_active", session_active)),
+        "owner_email": row.get("owner_email") or None,
     }
 
 
@@ -207,18 +210,89 @@ async def get_bots(user=Depends(current_user)):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, name, scenario, version, created_at, updated_at
-                    FROM bot_model
-                    WHERE user_id = %s
-                    ORDER BY created_at DESC
+                    SELECT b.id, b.name, b.scenario, b.version, b.created_at, b.updated_at,
+                           true AS is_owner,
+                           COALESCE(es.shared, false) AS session_active
+                    FROM bot_model b
+                    LEFT JOIN edit_sessions es ON es.scenario_id = b.id
+                    WHERE b.user_id = %s
+                    ORDER BY b.created_at DESC
                     """,
                     (user_id,),
                 )
-                rows = cur.fetchall()
+                owned = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT b.id, b.name, b.scenario, b.version, b.created_at, b.updated_at,
+                           false AS is_owner,
+                           COALESCE(es.shared, false) AS session_active,
+                           au.email AS owner_email
+                    FROM bot_access ba
+                    JOIN bot_model b ON b.id = ba.bot_id
+                    LEFT JOIN edit_sessions es ON es.scenario_id = b.id
+                    JOIN app_user au ON au.id = b.user_id
+                    WHERE ba.user_id = %s
+                    ORDER BY ba.joined_at DESC
+                    """,
+                    (user_id,),
+                )
+                shared = cur.fetchall()
     finally:
         conn.close()
 
-    return [_bot_to_dict(row) for row in rows]
+    return [_bot_to_dict(row) for row in list(owned) + list(shared)]
+
+
+@app.post("/api/bots/{bot_id}/access")
+async def record_bot_access(bot_id: str, user=Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM bot_model WHERE id = %s::uuid", (bot_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Bot not found")
+                if row["user_id"] == user_id:
+                    return {"ok": True}
+                cur.execute(
+                    """
+                    INSERT INTO bot_access (user_id, bot_id)
+                    VALUES (%s, %s::uuid)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (user_id, bot_id),
+                )
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/bots/{bot_id}/share-session")
+async def share_session(bot_id: str, user=Depends(current_user)):
+    user_id = user["id"]
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM bot_model WHERE id = %s::uuid AND user_id = %s",
+                    (bot_id, user_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=403, detail="Not the owner")
+                cur.execute(
+                    """
+                    INSERT INTO edit_sessions (id, scenario_id, version, shared)
+                    VALUES (%s::uuid, %s::uuid, 0, true)
+                    ON CONFLICT (scenario_id) DO UPDATE SET shared = true
+                    """,
+                    (str(uuid.uuid4()), bot_id),
+                )
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 @app.put("/api/bots/{bot_id}")
@@ -249,6 +323,66 @@ async def update_bot(bot_id: str, payload: dict, user=Depends(current_user)):
 
     if not row:
         raise HTTPException(status_code=404, detail="Bot not found")
+
+    return _bot_to_dict(row)
+
+
+@app.put("/api/bots/{bot_id}/collab-save")
+async def collab_save_bot(bot_id: str, payload: dict, user=Depends(current_user)):
+    name = (payload.get("name") or "").strip() or "Без имени"
+    scenario = payload.get("scenario") or {}
+
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE bot_model
+                    SET name = %s, scenario = %s::jsonb, updated_at = now()
+                    WHERE id = %s::uuid
+                    RETURNING id, name, scenario, version, created_at, updated_at
+                    """,
+                    (name, Json(scenario), bot_id),
+                )
+                row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    return _bot_to_dict(row)
+
+
+@app.post("/api/bots/copy/{source_id}")
+async def copy_bot(source_id: str, user=Depends(current_user)):
+    user_id = user["id"]
+
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, scenario FROM bot_model WHERE id = %s::uuid",
+                    (source_id,),
+                )
+                source = cur.fetchone()
+                if not source:
+                    raise HTTPException(status_code=404, detail="Bot not found")
+
+                new_id = str(uuid.uuid4())
+                cur.execute(
+                    """
+                    INSERT INTO bot_model (id, user_id, name, scenario, version)
+                    VALUES (%s::uuid, %s, %s, %s::jsonb, 0)
+                    RETURNING id, name, scenario, version, created_at, updated_at
+                    """,
+                    (new_id, user_id, source["name"] + " (copy)", Json(source["scenario"])),
+                )
+                row = cur.fetchone()
+    finally:
+        conn.close()
 
     return _bot_to_dict(row)
 

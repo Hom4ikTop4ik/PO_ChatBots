@@ -126,7 +126,7 @@ export default function Canvas({
         </ReactFlow>
 
         {/* Presence-оверлей: курсоры других участников (Vision §3.1) */}
-        <PresenceLayer wrapperRef={reactFlowWrapper} />
+        <PresenceLayer wrapperRef={reactFlowWrapper} nodes={nodes} />
       </div>
 
       {editingEdgeId && (

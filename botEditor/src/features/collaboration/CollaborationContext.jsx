@@ -20,6 +20,8 @@ export function CollaborationProvider({
   onOpAccepted,
   onOpRejected,
   onOpsReplay,
+  onReplaceApplied,
+  onReplaceRejected,
   children,
 }) {
   const controllerRef = useRef(null);
@@ -29,8 +31,10 @@ export function CollaborationProvider({
   const [locks, setLocks] = useState([]);
   const [presence, setPresence] = useState([]);
   const [pendingLocks, setPendingLocks] = useState([]);
+  const [replaceVoteRequest, setReplaceVoteRequest] = useState(null);
+  const [replacePending, setReplacePending] = useState(false);
   const callbacksRef = useRef({});
-  callbacksRef.current = { onSnapshot, onRemoteOp, onOpAccepted, onOpRejected, onOpsReplay };
+  callbacksRef.current = { onSnapshot, onRemoteOp, onOpAccepted, onOpRejected, onOpsReplay, onReplaceApplied, onReplaceRejected };
 
   useEffect(() => {
     if (!scenarioId) {
@@ -81,7 +85,7 @@ export function CollaborationProvider({
             return next;
           });
         },
-        onLockGranted: ({ block_id, field_name }) => {
+        onLockGranted: ({ block_id, field_name, locked_by }) => {
           setPendingLocks((prev) =>
             prev.filter((l) => !(l.block_id === block_id && l.field_name === field_name))
           );
@@ -95,7 +99,7 @@ export function CollaborationProvider({
               {
                 block_id,
                 field_name,
-                locked_by: you?.user_id ?? -1,
+                locked_by,
                 acquired_at: new Date().toISOString(),
               },
             ];
@@ -118,6 +122,18 @@ export function CollaborationProvider({
         onOpsReplay: (info) => {
           if (callbacksRef.current.onOpsReplay) callbacksRef.current.onOpsReplay(info);
         },
+        onReplaceVoteRequest: ({ requesterName }) => setReplaceVoteRequest({ requesterName }),
+        onReplacePending: () => setReplacePending(true),
+        onReplaceApplied: () => {
+          setReplacePending(false);
+          setReplaceVoteRequest(null);
+          if (callbacksRef.current.onReplaceApplied) callbacksRef.current.onReplaceApplied();
+        },
+        onReplaceRejected: (info) => {
+          setReplacePending(false);
+          if (callbacksRef.current.onReplaceRejected) callbacksRef.current.onReplaceRejected(info);
+        },
+        onReplaceCancelled: () => setReplaceVoteRequest(null),
       },
     });
 
@@ -161,6 +177,15 @@ export function CollaborationProvider({
 
   const updatePresence = useCallback((payload) => {
     if (controllerRef.current) controllerRef.current.sendPresence(payload);
+  }, []);
+
+  const requestReplace = useCallback((state) => {
+    if (controllerRef.current) controllerRef.current.sendReplaceRequest(state);
+  }, []);
+
+  const voteOnReplace = useCallback((approved) => {
+    if (controllerRef.current) controllerRef.current.sendReplaceVote(approved);
+    setReplaceVoteRequest(null);
   }, []);
 
   const getFieldLock = useCallback(
@@ -216,6 +241,10 @@ export function CollaborationProvider({
       isFieldLockedByOther,
       isFieldPending,
       getParticipant,
+      replaceVoteRequest,
+      replacePending,
+      requestReplace,
+      voteOnReplace,
     }),
     [
       scenarioId,
@@ -232,6 +261,10 @@ export function CollaborationProvider({
       isFieldLockedByOther,
       isFieldPending,
       getParticipant,
+      replaceVoteRequest,
+      replacePending,
+      requestReplace,
+      voteOnReplace,
     ]
   );
 
@@ -247,6 +280,8 @@ CollaborationProvider.propTypes = {
   onOpAccepted: PropTypes.func,
   onOpRejected: PropTypes.func,
   onOpsReplay: PropTypes.func,
+  onReplaceApplied: PropTypes.func,
+  onReplaceRejected: PropTypes.func,
   children: PropTypes.node,
 };
 

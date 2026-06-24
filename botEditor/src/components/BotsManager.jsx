@@ -26,7 +26,9 @@ export default function BotsManager({
   };
 
   const handleJoin = () => {
-    const id = joinId.trim();
+    let id = joinId.trim();
+    const uuidMatch = id.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (uuidMatch) id = uuidMatch[0];
     if (!id) return;
     if (onJoinSession) onJoinSession(id);
     setJoinId("");
@@ -146,13 +148,18 @@ export default function BotsManager({
             {visibleBots.map((bot) => (
               <li key={bot.id} className="bots-item">
                 <div className="bots-item-main">
-                  <div className="bots-item-name">{bot.name}</div>
-                  <div className="bots-item-meta">ID: {bot.id}</div>
-                  {bot.scenario?.BotName && (
-                    <div className="bots-item-meta bots-item-meta-light">
-                      В сценарии: {bot.scenario.BotName}
+                  <div className="bots-item-name">
+                    {bot.name}
+                    {bot.session_active && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: "#5cb85c", fontWeight: 600 }}>● сессия</span>
+                    )}
+                  </div>
+                  {bot.owner_email && (
+                    <div className="bots-item-meta" style={{ color: "#888" }}>
+                      👤 {bot.owner_email}
                     </div>
                   )}
+                  <div className="bots-item-meta">ID: {bot.id}</div>
                 </div>
                 <div className="bots-item-actions">
                   <button
@@ -167,12 +174,14 @@ export default function BotsManager({
                   >
                     Экспорт
                   </button>
-                  <button
-                    onClick={() => handleDelete(bot.id)}
-                    className="bots-button bots-button-danger"
-                  >
-                    Удалить
-                  </button>
+                  {bot.is_owner !== false && (
+                    <button
+                      onClick={() => handleDelete(bot.id)}
+                      className="bots-button bots-button-danger"
+                    >
+                      Удалить
+                    </button>
+                  )}
                 </div>
               </li>
             ))}

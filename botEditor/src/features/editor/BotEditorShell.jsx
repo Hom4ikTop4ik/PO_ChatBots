@@ -42,6 +42,10 @@ import {
   createBotApi,
   updateBotApi,
   deleteBotApi,
+  copyBotApi,
+  collabSaveBotApi,
+  recordBotAccessApi,
+  shareSessionApi,
 } from "../../api/botsApi";
 import {
   applyOperation,
@@ -102,6 +106,7 @@ export default function BotEditorShell() {
   const [redoStack, setRedoStack] = useState([]);
 
   const [currentBotId, setCurrentBotId] = useState(null);
+  const [collabSessionId, setCollabSessionId] = useState(null);
 
   const [isCurrentBotOwner, setIsCurrentBotOwner] = useState(true);
 
@@ -111,6 +116,7 @@ export default function BotEditorShell() {
   const editorStateRef = useRef(INITIAL_EDITOR_STATE);
   const scenarioVersionRef = useRef(0);
   const dragStartPosRef = useRef({});
+  const replaceAppliedRef = useRef(null);
 
   useEffect(() => {
     editorStateRef.current = editorState;
@@ -147,14 +153,27 @@ export default function BotEditorShell() {
   useEffect(() => {
     setLoadingBots(true);
     fetchBotsApi()
-      .then((data) => {
-        if (Array.isArray(data)) setBots(data);
-        else setBots([]);
+      .then(async (data) => {
+        const list = Array.isArray(data) ? data : [];
+        setBots(list);
+
+        // One-time migration: move old localStorage joinedBotIds → bot_access table
+        try {
+          const oldIds = JSON.parse(localStorage.getItem("joinedBotIds") || "[]");
+          if (oldIds.length > 0) {
+            const existingIds = new Set(list.map((b) => b.id));
+            await Promise.all(
+              oldIds
+                .filter((id) => !existingIds.has(id))
+                .map((id) => recordBotAccessApi(id).catch(() => null))
+            );
+            localStorage.removeItem("joinedBotIds");
+            const refreshed = await fetchBotsApi().catch(() => null);
+            if (Array.isArray(refreshed)) setBots(refreshed);
+          }
+        } catch {}
       })
-      .catch((e) => {
-        console.error("Failed to fetch bots", e);
-        setBots([]);
-      })
+      .catch(() => setBots([]))
       .finally(() => setLoadingBots(false));
   }, []);
 
@@ -219,6 +238,17 @@ export default function BotEditorShell() {
     showToast(`Изменение отменено: ${reasonText}`, "warning");
   }, [showToast]);
 
+  const handleReplaceApplied = useCallback(() => {
+    if (replaceAppliedRef.current) replaceAppliedRef.current();
+  }, []);
+
+  const handleReplaceRejected = useCallback(({ reason, by }) => {
+    if (reason === "rejected") showToast(`Импорт отклонён участником ${by || ""}`, "error");
+    else if (reason === "timeout") showToast("Импорт отклонён: время ожидания истекло", "error");
+    else if (reason === "owner_absent") showToast("Импорт запрещён: владелец не в сессии", "error");
+    else showToast("Импорт отклонён", "error");
+  }, [showToast]);
+
   const handleOpsReplay = useCallback(({ ops }) => {
     if (!Array.isArray(ops) || ops.length === 0) return;
     setEditorState((prev) => {
@@ -256,6 +286,7 @@ export default function BotEditorShell() {
       setGlobalVariables("");
     }
     setCurrentBotId(bot.id);
+    setCollabSessionId(bot.is_owner === false || bot.session_active ? bot.id : null);
     setView("editor");
   }, []);
 
@@ -272,6 +303,7 @@ export default function BotEditorShell() {
     setBotToken("");
     setGlobalVariables("");
     setCurrentBotId(null);
+    setCollabSessionId(null);
     setIsCurrentBotOwner(true);
     setView("editor");
   }, []);
@@ -292,17 +324,27 @@ export default function BotEditorShell() {
     if (!id) return;
     try {
       const meta = await fetchCollabScenarioMeta(id);
-      handleSelectBot({
-        id: meta.id,
-        name: meta.name,
-        scenario: meta.scenario,
-        version: meta.version,
-        is_owner: meta.is_owner,
-      });
+      const bot = { id: meta.id, name: meta.name, scenario: meta.scenario, version: meta.version, is_owner: meta.is_owner };
+      handleSelectBot(bot);
+      setCollabSessionId(meta.id);
+
+      if (!meta.is_owner) {
+        recordBotAccessApi(meta.id).catch(() => {});
+        setBots((prev) => prev.some((b) => b.id === meta.id) ? prev : [...prev, bot]);
+      }
     } catch (e) {
       alert("Не удалось открыть сессию: " + e.message);
     }
   }, [handleSelectBot]);
+
+  useEffect(() => {
+    if (loadingBots) return;
+    const joinId = localStorage.getItem("pendingJoin");
+    if (joinId) {
+      localStorage.removeItem("pendingJoin");
+      handleJoinSession(joinId);
+    }
+  }, [loadingBots, handleJoinSession]);
 
   if (view === "manager") {
     return (
@@ -324,12 +366,14 @@ export default function BotEditorShell() {
   return (
     <ReactFlowProvider>
       <CollaborationProvider
-        scenarioId={currentBotId}
+        scenarioId={collabSessionId}
         onSnapshot={handleSnapshot}
         onRemoteOp={handleRemoteOp}
         onOpAccepted={handleOpAccepted}
         onOpRejected={handleOpRejected}
         onOpsReplay={handleOpsReplay}
+        onReplaceApplied={handleReplaceApplied}
+        onReplaceRejected={handleReplaceRejected}
       >
         <ShellContent
           editorState={editorState}
@@ -362,9 +406,13 @@ export default function BotEditorShell() {
           fileInputRef={fileInputRef}
           bots={bots}
           setBots={setBots}
+          onSelectBot={handleSelectBot}
           setView={setView}
           currentBotId={currentBotId}
           setCurrentBotId={setCurrentBotId}
+          collabSessionId={collabSessionId}
+          setCollabSessionId={setCollabSessionId}
+          replaceAppliedRef={replaceAppliedRef}
           isCurrentBotOwner={isCurrentBotOwner}
           user={user}
           logout={logout}
@@ -410,6 +458,10 @@ function ShellContent(props) {
     setView,
     currentBotId,
     setCurrentBotId,
+    onSelectBot,
+    collabSessionId,
+    setCollabSessionId,
+    replaceAppliedRef,
     isCurrentBotOwner,
     user,
     logout,
@@ -418,9 +470,39 @@ function ShellContent(props) {
   } = props;
 
   const collab = useCollaboration();
+  const autoSaveTimerRef = useRef(null);
+  const isCopyingRef = useRef(false);
+  const pendingImportRef = useRef(null);
 
   const nodes = editorState.nodes;
   const edges = editorState.edges;
+
+  useEffect(() => {
+    if (collab.enabled) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (!nodes.length && !currentBotId) return;
+      const scenario = toScenario(nodes, edges);
+      scenario.BotName = botName;
+      scenario.Token = botToken;
+      scenario.GlobalVariables = globalVariables.split("\n").filter((v) => v.trim());
+      const name = botName || "Новый бот";
+      try {
+        if (currentBotId) {
+          const updated = await updateBotApi({ id: currentBotId, name, scenario });
+          setBots((prev) => prev.map((b) => (b.id === currentBotId ? updated : b)));
+        } else {
+          const created = await createBotApi({ name, scenario });
+          setBots((prev) => [...prev, created]);
+          setCurrentBotId(created.id);
+        }
+      } catch {
+        // silent
+      }
+    }, 2000);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, botName, botToken, globalVariables, collab.enabled]);
 
   const getCurrentVersion = useCallback(
     () => scenarioVersionRef.current,
@@ -722,7 +804,12 @@ function ShellContent(props) {
     }
 
     if (collab.enabled && !isCurrentBotOwner) {
-      alert("Сохранение доступно только владельцу сценария.");
+      try {
+        await collabSaveBotApi({ id: currentBotId, name: botName, scenario });
+        showToast("Сохранено для всех участников", "success");
+      } catch (e) {
+        showToast("Не удалось сохранить: " + e.message, "error");
+      }
       return;
     }
 
@@ -758,6 +845,7 @@ function ShellContent(props) {
     setCurrentBotId,
     collab.enabled,
     isCurrentBotOwner,
+    showToast,
   ]);
 
   const handleValidate = useCallback(() => {
@@ -798,6 +886,17 @@ function ShellContent(props) {
     if (fileInputRef.current) fileInputRef.current.click();
   }, [collab, fileInputRef]);
 
+  const applyImportMetadata = useCallback((json) => {
+    setSelectedNodeId(null);
+    if (json.BotName) setBotName(json.BotName);
+    if (json.Token) setBotToken(json.Token);
+    if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
+      setGlobalVariables(json.GlobalVariables.join("\n"));
+    } else {
+      setGlobalVariables("");
+    }
+  }, [setSelectedNodeId, setBotName, setBotToken, setGlobalVariables]);
+
   const handleFileChange = useCallback((event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -806,19 +905,24 @@ function ShellContent(props) {
       try {
         const json = JSON.parse(reader.result);
         const { nodes: newNodes, edges: newEdges } = fromScenario(json);
-        dispatchOperation(
-          createScenarioReplaceOp(
-            { nodes: newNodes, edges: newEdges },
-            getCurrentVersion()
-          )
-        );
-        setSelectedNodeId(null);
-        if (json.BotName) setBotName(json.BotName);
-        if (json.Token) setBotToken(json.Token);
-        if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
-          setGlobalVariables(json.GlobalVariables.join("\n"));
+        const otherActive = collab.enabled
+          ? collab.participants.filter(p => p.status === "active" && p.user_id !== collab.you?.user_id)
+          : [];
+        // Non-owners must always go through requestReplace so the backend can
+        // enforce the owner-in-session check, even if no other participants are active.
+        const needsApproval = collab.enabled && (!isCurrentBotOwner || otherActive.length > 0);
+        if (needsApproval) {
+          pendingImportRef.current = json;
+          replaceAppliedRef.current = () => {
+            if (pendingImportRef.current) {
+              applyImportMetadata(pendingImportRef.current);
+              pendingImportRef.current = null;
+            }
+          };
+          collab.requestReplace({ nodes: newNodes, edges: newEdges });
         } else {
-          setGlobalVariables("");
+          dispatchOperation(createScenarioReplaceOp({ nodes: newNodes, edges: newEdges }, getCurrentVersion()));
+          applyImportMetadata(json);
         }
       } catch (e) {
         alert("Ошибка загрузки сценария: " + e.message);
@@ -829,10 +933,10 @@ function ShellContent(props) {
   }, [
     dispatchOperation,
     getCurrentVersion,
-    setSelectedNodeId,
-    setBotName,
-    setBotToken,
-    setGlobalVariables,
+    collab,
+    isCurrentBotOwner,
+    applyImportMetadata,
+    replaceAppliedRef,
   ]);
 
   const updateNodeData = useCallback(
@@ -873,9 +977,39 @@ function ShellContent(props) {
         position: "relative",
       }}
     >
-      {currentBotId && (
+      {collabSessionId && (
         <div style={{ position: "absolute", top: 0, left: 260, right: 0, zIndex: 25 }}>
-          <ParticipantsBar scenarioId={currentBotId} />
+          <ParticipantsBar scenarioId={collabSessionId} />
+        </div>
+      )}
+
+      {collab.replaceVoteRequest && (
+        <div className="modal-overlay" style={{ zIndex: 100 }}>
+          <div className="modal" style={{ maxWidth: 360 }}>
+            <h3>Запрос на импорт сценария</h3>
+            <p>
+              <strong>{collab.replaceVoteRequest.requesterName}</strong> хочет заменить
+              текущий сценарий импортированным. Одобрить?
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => collab.voteOnReplace(false)} style={{ background: "#d32f2f", color: "#fff" }}>
+                Отклонить
+              </button>
+              <button onClick={() => collab.voteOnReplace(true)} style={{ background: "#388e3c", color: "#fff" }}>
+                Одобрить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {collab.replacePending && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          background: "#333", color: "#fff", padding: "8px 16px", borderRadius: 8,
+          fontSize: 13, zIndex: 100, pointerEvents: "none",
+        }}>
+          Ожидание подтверждения от участников…
         </div>
       )}
 
@@ -964,13 +1098,47 @@ function ShellContent(props) {
           Параметры
         </button>
 
-        {(isCurrentBotOwner || !collab.enabled) && (
+        {currentBotId && (
           <button
-            onClick={saveCurrentBot}
+            onClick={() => {
+              const url = `${window.location.origin}/?join=${currentBotId}`;
+              navigator.clipboard.writeText(url).catch(() => {
+                const ta = document.createElement("textarea");
+                ta.value = url; document.body.appendChild(ta);
+                ta.select(); document.execCommand("copy");
+                document.body.removeChild(ta);
+              });
+              setCollabSessionId(currentBotId);
+              shareSessionApi(currentBotId).catch(() => {});
+              setBots((prev) => prev.map((b) => b.id === currentBotId ? { ...b, session_active: true } : b));
+              showToast("Ссылка сессии скопирована", "success");
+            }}
+            className="mt8"
+            style={{ width: "100%", marginTop: 8 }}
+            title="Скопировать ссылку и открыть сессию совместного редактирования"
+          >
+            👥 Начать сессию
+          </button>
+        )}
+
+        {!isCurrentBotOwner && currentBotId && (
+          <button
+            onClick={() => {
+              if (isCopyingRef.current) return;
+              isCopyingRef.current = true;
+              copyBotApi(currentBotId)
+                .then((newBot) => {
+                  setBots((prev) => [newBot, ...prev]);
+                  onSelectBot(newBot);
+                  showToast("Копия сохранена в вашу коллекцию", "success");
+                })
+                .catch(() => showToast("Не удалось скопировать бота", "error"))
+                .finally(() => { isCopyingRef.current = false; });
+            }}
             className="mt8"
             style={{ width: "100%", marginTop: 8 }}
           >
-            Сохранить бота
+            Копировать и сохранить
           </button>
         )}
 
@@ -1005,7 +1173,7 @@ function ShellContent(props) {
           minWidth: 0,
           height: "100vh",
           position: "relative",
-          paddingTop: currentBotId ? 40 : 0,
+          paddingTop: collabSessionId ? 40 : 0,
           boxSizing: "border-box",
         }}
       >

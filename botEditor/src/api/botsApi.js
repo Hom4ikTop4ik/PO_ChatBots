@@ -28,3 +28,26 @@ export function deleteBotApi(id) {
   });
 }
 
+// POST /api/bots/copy/:sourceId
+export function copyBotApi(sourceId) {
+  return httpRequest(`/bots/copy/${sourceId}`, { method: "POST" });
+}
+
+// PUT /api/bots/:id/collab-save (no ownership check)
+export function collabSaveBotApi({ id, name, scenario }) {
+  return httpRequest(`/bots/${id}/collab-save`, {
+    method: "PUT",
+    body: { name, scenario },
+  });
+}
+
+// POST /api/bots/:id/access — record that the current user joined this bot
+export function recordBotAccessApi(botId) {
+  return httpRequest(`/bots/${botId}/access`, { method: "POST" });
+}
+
+// POST /api/bots/:id/share-session — mark bot's session as shared (owner only)
+export function shareSessionApi(botId) {
+  return httpRequest(`/bots/${botId}/share-session`, { method: "POST" });
+}
+

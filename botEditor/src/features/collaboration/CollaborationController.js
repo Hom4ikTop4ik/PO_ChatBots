@@ -105,6 +105,7 @@ export default class CollaborationController {
         this._emit("onLockGranted", {
           block_id: msg.block_id,
           field_name: msg.field_name,
+          locked_by: msg.locked_by,
         });
         break;
       }
@@ -131,6 +132,28 @@ export default class CollaborationController {
         if (msg.ops && msg.ops.length > 0) {
           this.serverVersion = msg.ops[msg.ops.length - 1].applied_version;
         }
+        break;
+      }
+      case "replace_vote_request": {
+        this._emit("onReplaceVoteRequest", { requesterName: msg.requester_name });
+        break;
+      }
+      case "replace_pending": {
+        this._emit("onReplacePending", { waitingFor: msg.waiting_for });
+        break;
+      }
+      case "replace_applied": {
+        this.serverVersion = msg.applied_version;
+        this._emit("onRemoteOp", { op: msg.op, applied_version: msg.applied_version });
+        this._emit("onReplaceApplied", {});
+        break;
+      }
+      case "replace_rejected": {
+        this._emit("onReplaceRejected", { reason: msg.reason, by: msg.by });
+        break;
+      }
+      case "replace_cancelled": {
+        this._emit("onReplaceCancelled", {});
         break;
       }
       default:
@@ -189,6 +212,16 @@ export default class CollaborationController {
       block_id: blockId,
       field_name: fieldName,
     });
+  }
+
+  sendReplaceRequest(state) {
+    if (!this.boundary) return;
+    this.boundary.send({ type: "replace_request", state });
+  }
+
+  sendReplaceVote(approved) {
+    if (!this.boundary) return;
+    this.boundary.send({ type: "replace_vote", approved });
   }
 
   sendPresence(payload) {

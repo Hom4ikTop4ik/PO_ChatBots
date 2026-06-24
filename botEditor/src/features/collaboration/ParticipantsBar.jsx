@@ -12,7 +12,7 @@ const STATUS_LABELS = {
 
 export default function ParticipantsBar({ scenarioId }) {
   const collab = useCollaboration();
-  const [showShare, setShowShare] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
 
   if (!collab.enabled) {
     return (
@@ -25,25 +25,28 @@ export default function ParticipantsBar({ scenarioId }) {
   }
 
   const status = STATUS_LABELS[collab.status] || STATUS_LABELS.idle;
-  const sortedParticipants = [...collab.participants].sort(
-    (a, b) => (a.status === b.status ? 0 : a.status === "active" ? -1 : 1)
+  const sortedParticipants = [...collab.participants].filter(
+    (p) => p.status === "active"
   );
 
-  const handleCopy = async () => {
-    if (!scenarioId) return;
+  const copyToClipboard = (text) => {
     try {
-      await navigator.clipboard.writeText(scenarioId);
+      navigator.clipboard.writeText(text);
     } catch {
-      // fallback
       const ta = document.createElement("textarea");
-      ta.value = scenarioId;
+      ta.value = text;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
       document.body.removeChild(ta);
     }
-    setShowShare(true);
-    setTimeout(() => setShowShare(false), 1500);
+  };
+
+  const handleJoinCopy = () => {
+    if (!scenarioId) return;
+    copyToClipboard(`${window.location.origin}/?join=${scenarioId}`);
+    setShowJoin(true);
+    setTimeout(() => setShowJoin(false), 1500);
   };
 
   return (
@@ -70,19 +73,11 @@ export default function ParticipantsBar({ scenarioId }) {
 
       <button
         type="button"
-        onClick={handleCopy}
-        style={{
-          marginLeft: "auto",
-          fontSize: 11,
-          background: "#fff",
-          border: "1px solid #ccc",
-          padding: "4px 8px",
-          borderRadius: 4,
-          cursor: "pointer",
-        }}
-        title="Скопировать ID сессии — отдайте его другому, чтобы он мог присоединиться"
+        onClick={handleJoinCopy}
+        style={{ ...btnStyle, marginLeft: "auto" }}
+        title="Скопировать ссылку для совместного редактирования"
       >
-        {showShare ? "✓ Скопировано" : "🔗 Скопировать ID"}
+        {showJoin ? "✓ Скопировано" : "👥 Скопировать ссылку сессии"}
       </button>
     </div>
   );
@@ -93,32 +88,60 @@ ParticipantsBar.propTypes = {
 };
 
 function Avatar({ participant, isMe }) {
-  const initials = (participant.display_name || "?")
-    .slice(0, 2)
-    .toUpperCase();
+  const [hovered, setHovered] = useState(false);
+  const initials = (participant.display_name || "?").slice(0, 2).toUpperCase();
   const isDisconnected = participant.status === "disconnected";
+  const label = [
+    participant.email || participant.display_name,
+    isMe ? "(вы)" : null,
+    isDisconnected ? "— отключён" : null,
+  ].filter(Boolean).join(" ");
+
   return (
     <div
-      title={`${participant.display_name}${isMe ? " (вы)" : ""}${
-        isDisconnected ? " — отключён" : ""
-      }`}
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: "50%",
-        background: isDisconnected ? "#bbb" : participant.color,
-        color: "white",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 11,
-        fontWeight: 700,
-        border: isMe ? "2px solid #1976d2" : "2px solid white",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
-        opacity: isDisconnected ? 0.6 : 1,
-      }}
+      style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {initials}
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: isDisconnected ? "#bbb" : participant.color,
+          color: "white",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 11,
+          fontWeight: 700,
+          border: isMe ? "2px solid #1976d2" : "2px solid white",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+          opacity: isDisconnected ? 0.6 : 1,
+          cursor: "default",
+        }}
+      >
+        {initials}
+      </div>
+      {hovered && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 6px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "#222",
+          color: "#fff",
+          fontSize: 11,
+          padding: "4px 8px",
+          borderRadius: 4,
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+          zIndex: 200,
+          boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+        }}>
+          {label}
+        </div>
+      )}
     </div>
   );
 }
@@ -142,4 +165,14 @@ const barStyle = {
   zIndex: 30,
   height: 40,
   boxSizing: "border-box",
+};
+
+const btnStyle = {
+  fontSize: 11,
+  background: "#fff",
+  border: "1px solid #ccc",
+  padding: "4px 8px",
+  borderRadius: 4,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
 };

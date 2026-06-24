@@ -71,17 +71,19 @@ export default function Canvas({
         if (participant) selectionByBlock.set(p.selected_block_id, participant);
       }
     }
-    if (selectionByBlock.size === 0) return nodes;
     return nodes.map((n) => {
       const owner = selectionByBlock.get(n.id);
-      if (!owner) return n;
+      const lockedByOther = collab.locks.some(
+        (l) => l.block_id === n.id && l.locked_by !== myUserId
+      );
+      const blockedByOther = lockedByOther || !!owner;
+      if (!blockedByOther) return n;
       return {
         ...n,
-        style: {
-          ...(n.style || {}),
-          boxShadow: `0 0 0 3px ${owner.color}`,
-          borderRadius: 6,
-        },
+        draggable: false,
+        style: owner
+          ? { ...(n.style || {}), boxShadow: `0 0 0 3px ${owner.color}`, borderRadius: 6 }
+          : (n.style || {}),
       };
     });
   }, [nodes, collab]);
@@ -193,6 +195,7 @@ Canvas.propTypes = {
   onEdgesDelete: PropTypes.func.isRequired,
   dispatchOperation: PropTypes.func.isRequired,
   getCurrentVersion: PropTypes.func.isRequired,
+  onPaneClick: PropTypes.func,
   editingEdgeId: PropTypes.string,
   setEditingEdgeId: PropTypes.func.isRequired,
 };

@@ -632,7 +632,10 @@ function ShellContent(props) {
       collab.releaseLock(blockId, "position");
       delete dragStartPosRef.current[blockId];
     });
-    collab.updatePresence({ dragging_block: null });
+    collab.locks
+      .filter((l) => l.locked_by === collab.you?.user_id)
+      .forEach((l) => collab.releaseLock(l.block_id, l.field_name));
+    collab.updatePresence({ selected_block_id: null, dragging_block: null });
   }, [collab, dragStartPosRef]);
 
   const onNodesChange = useCallback(
@@ -671,17 +674,21 @@ function ShellContent(props) {
             collab.releaseLock(change.id, "position");
           }
 
-          // Block is locked by someone else — revert position and skip op
-          if (collab.enabled && collab.isFieldLockedByOther(change.id, "position")) {
-            if (startPos && currentNode) {
+          // Fallback for race condition: lock/selection arrived after drag started
+          if (collab.enabled) {
+            const myId = collab.you?.user_id;
+            const occupiedByOther =
+              collab.locks.some((l) => l.block_id === change.id && l.locked_by !== myId) ||
+              collab.presence.some((p) => p.user_id !== myId && p.selected_block_id === change.id);
+            if (occupiedByOther && startPos) {
               setEditorState((prev) => ({
                 ...prev,
                 nodes: prev.nodes.map((n) =>
                   n.id === change.id ? { ...n, position: startPos } : n
                 ),
               }));
+              return null;
             }
-            return null;
           }
 
           return createBlockMoveOp(

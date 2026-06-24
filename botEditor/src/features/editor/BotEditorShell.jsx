@@ -570,11 +570,17 @@ function ShellContent(props) {
       const last = prev[prev.length - 1];
       const newUndo = prev.slice(0, -1);
       dispatchOperation(last.inverse, true);
-      if (collab.enabled) collab.publishOperation(last.inverse);
+      if (collab.enabled) {
+        collab.publishOperation({
+          ...last.inverse,
+          op_id: crypto.randomUUID(),
+          base_version: getCurrentVersion(),
+        });
+      }
       setRedoStack((r) => [...r, last]);
       return newUndo;
     });
-  }, [dispatchOperation, collab, setRedoStack, setUndoStack]);
+  }, [dispatchOperation, collab, getCurrentVersion, setRedoStack, setUndoStack]);
 
   const handleRedo = useCallback(() => {
     setRedoStack((prev) => {
@@ -582,11 +588,17 @@ function ShellContent(props) {
       const last = prev[prev.length - 1];
       const newRedo = prev.slice(0, -1);
       dispatchOperation(last.original, true);
-      if (collab.enabled) collab.publishOperation(last.original);
+      if (collab.enabled) {
+        collab.publishOperation({
+          ...last.original,
+          op_id: crypto.randomUUID(),
+          base_version: getCurrentVersion(),
+        });
+      }
       setUndoStack((u) => [...u, last]);
       return newRedo;
     });
-  }, [dispatchOperation, collab, setRedoStack, setUndoStack]);
+  }, [dispatchOperation, collab, getCurrentVersion, setRedoStack, setUndoStack]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -624,6 +636,7 @@ function ShellContent(props) {
           if (!dragStartPosRef.current[change.id]) {
             const node = editorStateRef.current.nodes.find((n) => n.id === change.id);
             if (node) dragStartPosRef.current[change.id] = { ...node.position };
+            if (collab.enabled) collab.acquireLock(change.id, "position");
           }
           if (collab.enabled && change.position) {
             collab.updatePresence({
@@ -646,7 +659,22 @@ function ShellContent(props) {
           delete dragStartPosRef.current[change.id];
           if (collab.enabled) {
             collab.updatePresence({ dragging_block: null });
+            collab.releaseLock(change.id, "position");
           }
+
+          // Block is locked by someone else — revert position and skip op
+          if (collab.enabled && collab.isFieldLockedByOther(change.id, "position")) {
+            if (startPos && currentNode) {
+              setEditorState((prev) => ({
+                ...prev,
+                nodes: prev.nodes.map((n) =>
+                  n.id === change.id ? { ...n, position: startPos } : n
+                ),
+              }));
+            }
+            return null;
+          }
+
           return createBlockMoveOp(
             change.id,
             safePosition,
@@ -1042,7 +1070,15 @@ function ShellContent(props) {
 
         <h3>Блоки</h3>
 
-        {["start", "final", "message", "input", "condition", "choice", "api"].map((t) => (
+        {[
+          { type: "start",     label: "Старт" },
+          { type: "final",     label: "Финал" },
+          { type: "message",   label: "Сообщение" },
+          { type: "input",     label: "Ввод данных" },
+          { type: "condition", label: "Условие" },
+          { type: "choice",    label: "Выбор варианта" },
+          { type: "api",       label: "API-запрос" },
+        ].map(({ type: t, label }) => (
           <div
             key={t}
             className="block-item"
@@ -1061,7 +1097,7 @@ function ShellContent(props) {
               userSelect: "none",
             }}
           >
-            {t}
+            {label}
           </div>
         ))}
 

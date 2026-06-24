@@ -10,6 +10,10 @@ export default function ConditionNode({ data }) {
         {renderTextWithVariables(data.expression)}
       </div>
       <Handle type="target" position={Position.Top} />
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: "#555" }}>
+        <span style={{ color: "#388e3c", fontWeight: 700, paddingLeft: 8 }}>✓ Да</span>
+        <span style={{ color: "#d32f2f", fontWeight: 700, paddingRight: 8 }}>✗ Нет</span>
+      </div>
       <Handle
         type="source"
         position={Position.Bottom}

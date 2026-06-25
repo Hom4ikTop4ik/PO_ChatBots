@@ -24,7 +24,7 @@ export default function ChoiceNode({ data }) {
               key={opt.id}
               type="source"
               position={Position.Bottom}
-              id={opt.id}
+              id={String(opt.id)}
               className="handle-left"
               style={{ "--left": `${leftPercent}%` }}
             />

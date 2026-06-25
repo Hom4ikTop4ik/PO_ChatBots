@@ -256,7 +256,7 @@ def _scenario_to_state(scenario_json: Dict[str, Any]) -> Dict[str, Any]:
             data["method"] = params.get("method", "GET")
             data["headers"] = params.get("headers", {})
             data["body"] = params.get("body", "")
-            data["resultVariable"] = params.get("resultVariable", "")
+            data["variables"] = params.get("variables", {})
             data["retryCount"] = params.get("retryCount", 0)
         nodes.append({
             "id": b["Block_id"],

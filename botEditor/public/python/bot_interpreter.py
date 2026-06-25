@@ -354,6 +354,14 @@ class BotInterpreter:
         
         # Маппинг переменных
         var_mapping = params.get("variables", {})
+        print(f"[BotInterpreter] var_mapping raw: type={type(var_mapping).__name__} value={var_mapping!r}")
+        # Если variables пришли строкой — распарсим
+        if isinstance(var_mapping, str):
+            try:
+                import json as _j
+                var_mapping = _j.loads(var_mapping)
+            except Exception:
+                var_mapping = {}
         var_mapping_substituted = {}
         for json_field, var_name in var_mapping.items():
             var_mapping_substituted[json_field] = self._format_text(var_name, session["variables"])
@@ -390,14 +398,14 @@ class BotInterpreter:
                 response = await fetch(url, fetch_options)
                 status = response.status
                 
-                # Получаем ответ
-                content_type = response.headers.get("Content-Type", "")
-                if "application/json" in content_type:
-                    js_data = await response.json()
-                    resp_data = js_data.to_py() if hasattr(js_data, 'to_py') else dict(js_data)
-                else:
-                    js_text = await response.text()
-                    resp_data = {"text": str(js_text)}
+                # Получаем ответ через text+json.loads — надёжнее to_py() в Pyodide
+                import json as _json
+                js_text = await response.text()
+                raw_text = str(js_text)
+                try:
+                    resp_data = _json.loads(raw_text)
+                except Exception:
+                    resp_data = {"text": raw_text}
                     
             else:
                 # Используем aiohttp (серверная версия)
@@ -441,14 +449,15 @@ class BotInterpreter:
 
             # Успех или провал
             is_success = 200 <= status < 300
-            
+            print(f"[BotInterpreter] API status={status} is_success={is_success} resp_data keys={list(resp_data.keys()) if isinstance(resp_data, dict) else type(resp_data)}")
+
             # Сохраняем переменные
             if is_success:
                 for json_field, var_name in var_mapping_substituted.items():
                     value = self._get_nested_value(resp_data, json_field)
+                    print(f"[BotInterpreter] mapping {json_field!r} -> {var_name!r} = {value!r}")
                     if value is not None:
                         session["variables"][var_name] = value
-                        logger.debug(f"Saved {var_name} = {value} from {json_field}")
 
             # Выбираем выход
             out_idx = 0 if is_success else 1

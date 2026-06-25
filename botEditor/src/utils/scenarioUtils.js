@@ -87,7 +87,7 @@ export function fromScenario(scenario) {
         data.method = block.Params?.method || "GET";
         data.headers = block.Params?.headers || {};
         data.body = block.Params?.body || "";
-        data.variables = block.Params?.variables || "";
+        data.variables = block.Params?.variables || {};
         data.retryCount = block.Params?.retryCount || 0;
         break;
       default:
@@ -164,9 +164,9 @@ export function toScenario(nodes, edges) {
         params.headers = node.data.headers || {};
         params.body = node.data.body || "";
         params.retryCount = node.data.retryCount || 0;
-        if (node.data.variables) {
-	          params.variables = node.data.variables;
-        }
+        params.variables = (node.data.variables && typeof node.data.variables === "object")
+          ? node.data.variables
+          : {};
         break;
       default:
         break;

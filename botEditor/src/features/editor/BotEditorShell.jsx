@@ -346,9 +346,8 @@ export default function BotEditorShell() {
     if (!id) return;
     try {
       const meta = await fetchCollabScenarioMeta(id);
-      const bot = { id: meta.id, name: meta.name, scenario: meta.scenario, version: meta.version, is_owner: meta.is_owner };
+      const bot = { id: meta.id, name: meta.name, scenario: meta.scenario, version: meta.version, is_owner: meta.is_owner, session_active: true };
       handleSelectBot(bot);
-      setCollabSessionId(meta.id);
 
       if (!meta.is_owner) {
         recordBotAccessApi(meta.id).catch(() => {});

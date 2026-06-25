@@ -23,23 +23,21 @@ export function validateScenario(nodes, edges, globalVars) {
   const globalVarNames = new Set();
 
   (globalVars || []).forEach((v) => {
-    const trimmed = v && v.trim();
-    if (trimmed) {
+    let varName;
+    if (v && typeof v === "object") {
+      varName = (v.name || "").trim();
+    } else {
+      const trimmed = String(v || "").trim();
       const eqIndex = trimmed.indexOf("=");
-      let varName;
-      if (eqIndex === -1) {
-        varName = trimmed;
+      varName = eqIndex === -1 ? trimmed : trimmed.substring(0, eqIndex).trim();
+    }
+    if (varName) {
+      if (globalVarNames.has(varName)) {
+        errors.push(`Глобальная переменная "${varName}" определена несколько раз`);
       } else {
-        varName = trimmed.substring(0, eqIndex).trim();
+        globalVarNames.add(varName);
       }
-      if (varName) {
-        if (globalVarNames.has(varName)) {
-          errors.push(`Глобальная переменная "${varName}" определена несколько раз`);
-        } else {
-          globalVarNames.add(varName);
-        }
-        definedVars.add(varName);
-      }
+      definedVars.add(varName);
     }
   });
   nodes.forEach((node) => {

@@ -80,6 +80,26 @@ const INITIAL_EDITOR_STATE = {
   edges: [],
 };
 
+// Normalize GlobalVariables from any format to [{name, value}]
+// Handles: [{name, default}] (new), ["name=value"] (old string), ["name"] (bare)
+function parseGlobalVars(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v) => {
+      if (!v) return null;
+      if (typeof v === "object") {
+        return { name: (v.name || "").trim(), value: (v.default ?? v.value ?? "") };
+      }
+      const s = String(v).trim();
+      if (!s) return null;
+      const eq = s.indexOf("=");
+      return eq === -1
+        ? { name: s, value: "" }
+        : { name: s.substring(0, eq).trim(), value: s.substring(eq + 1).trim() };
+    })
+    .filter((v) => v && v.name);
+}
+
 
 export default function BotEditorShell() {
   const { user, logout } = useAuth();
@@ -278,20 +298,7 @@ export default function BotEditorShell() {
     setSelectedNodeId(null);
     setBotName(bot.scenario.BotName || bot.name);
     setIsCurrentBotOwner(bot.is_owner !== false);
-    if (bot.scenario.GlobalVariables && Array.isArray(bot.scenario.GlobalVariables)) {
-      const parsed = bot.scenario.GlobalVariables
-        .filter((v) => v && v.trim())
-        .map((v) => {
-          const eqIndex = v.indexOf("=");
-          if (eqIndex === -1) {
-            return { name: v.trim(), value: "" };
-          }
-          return { name: v.substring(0, eqIndex).trim(), value: v.substring(eqIndex + 1).trim() };
-        });
-      setGlobalVariables(parsed);
-    } else {
-      setGlobalVariables([]);
-    }
+    setGlobalVariables(parseGlobalVars(bot.scenario.GlobalVariables));
     setCurrentBotId(bot.id);
     setCollabSessionId(bot.is_owner === false || bot.session_active ? bot.id : null);
     setView("editor");
@@ -488,7 +495,7 @@ function ShellContent(props) {
       scenario.BotName = botName;
       scenario.GlobalVariables = globalVariables
         .filter((v) => v && v.name && v.name.trim())
-        .map((v) => `${v.name.trim()}=${v.value || ""}`);
+        .map((v) => ({ name: v.name.trim(), default: v.value || "" }));
       const name = botName || "Новый бот";
       try {
         if (currentBotId) {
@@ -852,7 +859,7 @@ function ShellContent(props) {
     scenario.BotName = botName;
     scenario.GlobalVariables = globalVariables
       .filter((v) => v && v.name && v.name.trim())
-      .map((v) => `${v.name.trim()}=${v.value || ""}`);
+      .map((v) => ({ name: v.name.trim(), default: v.value || "" }));
 
     const { valid, errors } = validateScenario(nodes, edges, scenario.GlobalVariables);
     if (!valid) {
@@ -919,7 +926,7 @@ function ShellContent(props) {
     scenario.BotName = botName;
     scenario.GlobalVariables = globalVariables
       .filter((v) => v && v.name && v.name.trim())
-      .map((v) => `${v.name.trim()}=${v.value || ""}`);
+      .map((v) => ({ name: v.name.trim(), default: v.value || "" }));
     const blob = new Blob([JSON.stringify(scenario, null, 2)], {
       type: "application/json",
     });
@@ -949,20 +956,7 @@ function ShellContent(props) {
   const applyImportMetadata = useCallback((json) => {
     setSelectedNodeId(null);
     if (json.BotName) setBotName(json.BotName);
-    if (json.GlobalVariables && Array.isArray(json.GlobalVariables)) {
-      const parsed = json.GlobalVariables
-        .filter((v) => v && v.trim())
-        .map((v) => {
-          const eqIndex = v.indexOf("=");
-          if (eqIndex === -1) {
-            return { name: v.trim(), value: "" };
-          }
-          return { name: v.substring(0, eqIndex).trim(), value: v.substring(eqIndex + 1).trim() };
-        });
-      setGlobalVariables(parsed);
-    } else {
-      setGlobalVariables([]);
-    }
+    setGlobalVariables(parseGlobalVars(json.GlobalVariables));
   }, [setSelectedNodeId, setBotName, setGlobalVariables]);
 
   const handleFileChange = useCallback((event) => {

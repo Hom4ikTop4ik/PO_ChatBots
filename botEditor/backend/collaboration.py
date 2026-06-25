@@ -265,8 +265,23 @@ def _scenario_to_state(scenario_json: Dict[str, Any]) -> Dict[str, Any]:
             "data": data,
         })
         from_id = b["Block_id"]
-        for to_id in (b.get("Connections") or {}).get("Out", []):
-            edges.append({"id": f"{from_id}-{to_id}", "source": from_id, "target": to_id})
+        out_edges = (b.get("Connections") or {}).get("OutEdges")
+        if out_edges:
+            for e in out_edges:
+                handle_suffix = f"-{e['sourceHandle']}" if e.get("sourceHandle") else ""
+                edge: Dict[str, Any] = {
+                    "id": e.get("id") or f"{from_id}{handle_suffix}-{e['target']}",
+                    "source": from_id,
+                    "target": e["target"],
+                }
+                if e.get("sourceHandle") is not None:
+                    edge["sourceHandle"] = e["sourceHandle"]
+                if e.get("targetHandle") is not None:
+                    edge["targetHandle"] = e["targetHandle"]
+                edges.append(edge)
+        else:
+            for to_id in (b.get("Connections") or {}).get("Out", []):
+                edges.append({"id": f"{from_id}-{to_id}", "source": from_id, "target": to_id})
     return {"nodes": nodes, "edges": edges}
 
 
@@ -275,9 +290,16 @@ def _state_to_scenario(state: Dict[str, Any], base_scenario: Dict[str, Any]) -> 
     edges = state.get("edges", [])
     in_map: Dict[str, List[str]] = {}
     out_map: Dict[str, List[str]] = {}
+    out_edges_map: Dict[str, List[Dict[str, Any]]] = {}
     for e in edges:
         out_map.setdefault(e["source"], []).append(e["target"])
         in_map.setdefault(e["target"], []).append(e["source"])
+        out_edge: Dict[str, Any] = {"id": e.get("id", ""), "target": e["target"]}
+        if e.get("sourceHandle") is not None:
+            out_edge["sourceHandle"] = e["sourceHandle"]
+        if e.get("targetHandle") is not None:
+            out_edge["targetHandle"] = e["targetHandle"]
+        out_edges_map.setdefault(e["source"], []).append(out_edge)
 
     type_map = {"message": "sendMessage", "input": "getMessage"}
     blocks = []
@@ -315,6 +337,7 @@ def _state_to_scenario(state: Dict[str, Any], base_scenario: Dict[str, Any]) -> 
             "Connections": {
                 "In": in_map.get(n["id"], []),
                 "Out": out_map.get(n["id"], []),
+                "OutEdges": out_edges_map.get(n["id"], []),
             },
         })
 

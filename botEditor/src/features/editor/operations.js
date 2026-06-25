@@ -84,10 +84,13 @@ export function createBlockDeleteOp(blockId, baseVersion = 0) {
 }
 
 export function createEdgeAddOp(edgeLike, baseVersion = 0) {
+  const handleSuffix = edgeLike.sourceHandle ? `-${edgeLike.sourceHandle}` : "";
   const edge = {
-    id: edgeLike.id || `${edgeLike.source}-${edgeLike.target}`,
+    id: edgeLike.id || `${edgeLike.source}${handleSuffix}-${edgeLike.target}`,
     source: edgeLike.source,
     target: edgeLike.target,
+    ...(edgeLike.sourceHandle != null ? { sourceHandle: edgeLike.sourceHandle } : {}),
+    ...(edgeLike.targetHandle != null ? { targetHandle: edgeLike.targetHandle } : {}),
     ...(edgeLike.label ? { label: edgeLike.label } : {}),
     ...(edgeLike.type ? { type: edgeLike.type } : {}),
   };

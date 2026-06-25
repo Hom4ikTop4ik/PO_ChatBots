@@ -49,13 +49,18 @@ def init_preview(js_bridge):
 async def start_preview(bot_model_json):
     global interpreter
     try:
+        import importlib
+        import bot_interpreter as _bi_mod
+        importlib.reload(_bi_mod)
+        from bot_interpreter import BotInterpreter as _BotInterpreter
+
         # Парсинг модели
         if isinstance(bot_model_json, str):
             model = json.loads(bot_model_json)
         else:
             model = bot_model_json
-            
-        interpreter = BotInterpreter(model, api, storage)
+
+        interpreter = _BotInterpreter(model, api, storage)
         
         meta = {"username": "User", "first_name": "Test", "user_id": PREVIEW_USER_ID}
         await interpreter.start_dialog(PREVIEW_USER_ID, meta)

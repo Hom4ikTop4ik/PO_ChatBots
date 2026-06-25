@@ -139,7 +139,7 @@ export default function ChatPreview({ nodes, edges, globalVariables = [], open: 
         if (globalVariables && Array.isArray(globalVariables)) {
           botModel.GlobalVariables = globalVariables
             .filter((v) => v && v.name && v.name.trim())
-            .map((v) => `${v.name.trim()}=${v.value || ""}`);
+            .map((v) => ({ name: v.name.trim(), default: v.value || "" }));
         }
         const jsonModel = JSON.stringify(botModel);
         

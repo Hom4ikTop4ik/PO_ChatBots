@@ -304,7 +304,8 @@ export default function BotEditorShell() {
     setView("editor");
   }, []);
 
-  const handleNewBot = useCallback((name) => {
+  const handleNewBot = useCallback(async (name) => {
+    const botName = name || "Bot";
     setEditorState({ nodes: [], edges: [] });
     editorStateRef.current = { nodes: [], edges: [] };
     setScenarioVersion(0);
@@ -313,13 +314,21 @@ export default function BotEditorShell() {
     setUndoStack([]);
     setRedoStack([]);
     setSelectedNodeId(null);
-    setBotName(name || "Bot");
+    setBotName(botName);
     setGlobalVariables([]);
     setCurrentBotId(null);
     setCollabSessionId(null);
     setIsCurrentBotOwner(true);
     setView("editor");
-  }, []);
+
+    try {
+      const created = await createBotApi({ name: botName, scenario: { BotName: botName, Blocks: [], GlobalVariables: [] } });
+      setBots((prev) => [created, ...prev]);
+      setCurrentBotId(created.id);
+    } catch (e) {
+      showToast("Не удалось создать бота: " + e.message, "error");
+    }
+  }, [showToast]);
 
   const handleDeleteBot = useCallback(async (botId) => {
     const ok = globalThis.confirm("Удалить бота и его сценарий?");
@@ -1385,7 +1394,7 @@ function ShellContent(props) {
       <ChatPreview
         nodes={nodes}
         edges={edges}
-        globalVariables={globalVariables && Array.isArray(globalVariables) ? globalVariables.filter((v) => v && v.name && v.name.trim()).map((v) => `${v.name.trim()}=${v.value || ""}`) : []}
+        globalVariables={globalVariables}
       />
     </div>
   );

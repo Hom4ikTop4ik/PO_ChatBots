@@ -23,9 +23,32 @@ class BotInterpreter:
         self.storage = storage if storage else MemoryStorage()
         
         self.blocks = {b["Block_id"]: b for b in bot_model["Blocks"]}
+        top_edges = bot_model.get("Edges", [])
+        if top_edges:
+            for block in self.blocks.values():
+                conns = block.get("Connections", {})
+                if not conns.get("OutEdges"):
+                    src = block["Block_id"]
+                    conns["OutEdges"] = [
+                        {"id": e.get("id", ""), "target": e["target"],
+                         **( {"sourceHandle": e["sourceHandle"]} if e.get("sourceHandle") else {} )}
+                        for e in top_edges if e.get("source") == src
+                    ]
         
         # Глобальные переменные (конфигурация)
-        self.global_vars = {v["name"]: v.get("default", "") for v in self.model.get("GlobalVariables", [])}
+        raw_vars = self.model.get("GlobalVariables", [])
+        self.global_vars = {}
+        for v in raw_vars:
+            if isinstance(v, dict):
+                name = v.get("name", "").strip()
+                value = v.get("default", v.get("value", ""))
+                if name:
+                    self.global_vars[name] = value
+            elif isinstance(v, str) and "=" in v:
+                name, _, value = v.partition("=")
+                if name.strip():
+                    self.global_vars[name.strip()] = value.strip()
+        print(f"[BotInterpreter] global_vars loaded: {self.global_vars}")
 
         self.block_handlers = {
             "start": self._handle_start_block,
@@ -242,15 +265,19 @@ class BotInterpreter:
             var_name = block["Params"]["var"]
             session["variables"][var_name] = selected["value"]
 
-            # Определяем, куда идти (manual switch)
+            out_edges = block["Connections"].get("OutEdges", [])
+            if out_edges:
+                target = next((e["target"] for e in out_edges if str(e.get("sourceHandle")) == str(selected["id"])), None)
+                if target:
+                    session["current_block"] = target
+                    return "manual_switch"
+
             idx = options.index(selected)
             out_conns = block["Connections"].get("Out", [])
-            
             if idx < len(out_conns):
                 session["current_block"] = out_conns[idx]
                 return "manual_switch"
             else:
-                # Ветка не подключена
                 logger.warning(f"Choice block {block['Block_id']}: branch {idx} not connected")
                 return "break"
 
@@ -271,25 +298,28 @@ class BotInterpreter:
         """
         Вычисляет условие и меняет current_block.
         """
-        condition_expr = block["Params"].get("condition", "False")
+        condition_expr = block["Params"].get("expression", block["Params"].get("condition", "False"))
         try:
-            # Безопаснее использовать simpleeval, но пока eval
-            # Обязательно преобразуем переменные в нужные типы перед этим, если надо
             res = eval(condition_expr, {"__builtins__": {}}, session["variables"])
         except Exception as e:
             logger.error(f"Condition error user {user_id}: {e}")
             res = False
 
+        out_edges = block["Connections"].get("OutEdges", [])
+        if out_edges:
+            handle = "true" if res else "false"
+            target = next((e["target"] for e in out_edges if str(e.get("sourceHandle", "")).lower() == handle), None)
+            if target:
+                session["current_block"] = target
+                return "manual_switch"
+
         out_conns = block["Connections"].get("Out", [])
-        
-        # Индекс: 0 - True, 1 - False
         idx = 0 if res else 1
-        
         if idx < len(out_conns):
             session["current_block"] = out_conns[idx]
             return "manual_switch"
-        
-        return "break" # Если ветка не подключена
+
+        return "break"
 
     async def _handle_api_request_block(self, block, user_id, session, input_data):
         """
@@ -300,6 +330,7 @@ class BotInterpreter:
         
         # Подставляем переменные
         url = self._format_text(params.get("url", ""), session["variables"])
+        print(f"[BotInterpreter] API block URL after substitution: {url}")
         method = params.get("method", "GET").upper()
         
         # Заголовки
@@ -500,6 +531,9 @@ class BotInterpreter:
             placeholder = "${" + k + "}"
             if placeholder in text:
                 text = text.replace(placeholder, str(v))
+        if "${" in text:
+            print(f"[BotInterpreter] WARNING: unresolved placeholder in text. Available vars: {list(variables.keys())}")
+            logger.warning(f"Unresolved placeholder remains after substitution. Available vars: {list(variables.keys())}")
         return text
 
     def _cast_type(self, value, expected_type):
